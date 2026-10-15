@@ -1,0 +1,25 @@
+# Secrets / signing
+.env
+*.jks
+*.keystore
+keystore.properties
+local.properties
+
+# Android / Gradle
+.gradle/
+build/
+*.apk
+*.aab
+.idea/
+*.iml
+.cxx/
+captures/
+
+# Private test documents (school content)
+samples/*
+!samples/.gitkeep
+spike-out/
+
+# OS / logs
+.DS_Store
+*.log
