@@ -4,7 +4,7 @@ Android app (phone + tablet) to open, edit and export `.docx` files with maximum
 
 ## Status
 
-Milestone 1 done: LibreOffice engine (prebuilt from the TDF Android APK via `scripts/fetch-engine.sh`) renders .docx on device. Next: viewer UI.
+Viewer milestone done: open .docx (picker, "Open with", share), tiled render with pinch/double-tap zoom and fling, page indicator, PDF export, share. Next: editor.
 
 ## Stack
 

@@ -1,5 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">MatNotes</string>
-    <string name="hello">MatNotes is running</string>
+    <string name="tagline">View and edit Word documents without breaking the layout.</string>
+    <string name="open_document">Open document</string>
+    <string name="recent">Recent</string>
+    <string name="no_recent">No documents yet.</string>
+    <string name="loading">Loading…</string>
+    <string name="back">Back</string>
+    <string name="export_pdf">Export as PDF</string>
+    <string name="share_docx">Share document</string>
+    <string name="page_of">%1$d / %2$d</string>
+    <string name="open_failed">Could not open this document.</string>
+    <string name="export_failed">Export failed.</string>
+    <string name="share_via">Share via</string>
 </resources>
