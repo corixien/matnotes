@@ -17,4 +17,4 @@ Tracked changes, macros, mail merge, live collaboration, accounts, cloud.
 - Never commit secrets, keystores, or private sample docs (`samples/`).
 - Do not restructure architecture without being asked.
 - No linter/formatter additions unless asked.
-- Commands: added with the Gradle project skeleton.
+- Commands: `./gradlew :app:assembleDebug`, install with `adb install -r app/build/outputs/apk/debug/app-debug.apk`. Needs a full JDK (not JRE-only) via `org.gradle.java.home` in `~/.gradle/gradle.properties`. Package `com.matnotes.app`, compileSdk 37, minSdk 26.

@@ -4,7 +4,7 @@ Android app (phone + tablet) to open, edit and export `.docx` files with maximum
 
 ## Status
 
-Milestone 1: fidelity spike (see `docs/spike.md` once created).
+Milestone 1: Hello-World skeleton runs on device. Next: fidelity spike, then viewer.
 
 ## Stack
 
@@ -12,7 +12,12 @@ Kotlin, Jetpack Compose, LibreOfficeKit (JNI). Distribution: signed APK via GitH
 
 ## Develop
 
-Requires JDK 17+, Android SDK + NDK. Build commands are added with the Android project skeleton.
+Requires a full JDK (21 recommended, with `javac`) and the Android SDK (platform 37, build-tools 35). Set the JDK in `~/.gradle/gradle.properties` (`org.gradle.java.home=...`) and the SDK in `local.properties` (`sdk.dir=...`, gitignored).
+
+```bash
+./gradlew :app:assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
 
 ## Test documents
 
