@@ -4,7 +4,7 @@ Android app (phone + tablet) to open, edit and export `.docx` files with maximum
 
 ## Status
 
-Milestone 1: Hello-World skeleton runs on device. Next: fidelity spike, then viewer.
+Milestone 1 done: LibreOffice engine (prebuilt from the TDF Android APK via `scripts/fetch-engine.sh`) renders .docx on device. Next: viewer UI.
 
 ## Stack
 

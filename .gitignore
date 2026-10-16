@@ -23,3 +23,8 @@ spike-out/
 # OS / logs
 .DS_Store
 *.log
+
+# Local engine binaries (fetched by script, not committed)
+engine/
+app/src/main/jniLibs/
+app/src/main/assets/

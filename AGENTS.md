@@ -13,6 +13,9 @@ Kotlin + Jetpack Compose, LibreOfficeKit via JNI, local storage (SAF), no backen
 ## Out of scope
 Tracked changes, macros, mail merge, live collaboration, accounts, cloud.
 
+## Engine
+Run `scripts/fetch-engine.sh` once (downloads the TDF LibreOffice APK from F-Droid, unpacks libs + assets into `app/src/main`, all gitignored). JNI classes in `org.libreoffice.kit` are copied from LibreOffice core (MPL-2.0); package names must stay.
+
 ## Rules
 - Never commit secrets, keystores, or private sample docs (`samples/`).
 - Do not restructure architecture without being asked.
