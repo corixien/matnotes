@@ -120,6 +120,14 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     val base: Float get() = if (viewSize.width == 0) 0f else viewSize.width.toFloat() / layout.width
 
     private val scale get() = base * zoom
+
+    /** Set by the activity so Ctrl+S on a hardware keyboard can save. */
+    var onSave: (() -> Unit)? = null
+
+    /** Scrollable distance in view pixels (0 when the whole document fits). */
+    val scrollRange: Float get() = (layout.height * scale - viewSize.height).coerceAtLeast(0f)
+    fun scrollFraction(): Float = if (scrollRange <= 0f) 0f else (-offset.y / scrollRange).coerceIn(0f, 1f)
+    fun scrollToFraction(f: Float) { offset = clamp(Offset(offset.x, -f.coerceIn(0f, 1f) * scrollRange)) }
     private val contentWidth get() = layout.width * scale
     private val contentHeight get() = layout.height * scale
 
@@ -263,6 +271,19 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
             repeat(if (hadSelection) 1 else text.length) { pressKey(Keys.RIGHT) }
         }
     }
+
+    /** Top-centre of the selection in view pixels (for the floating toolbar). */
+    fun selectionAnchor(): Offset? {
+        val sel = selection
+        if (sel.isEmpty()) return null
+        val top = sel.minOf { it.top }
+        return Offset(pxX((sel.minOf { it.left } + sel.maxOf { it.right }) / 2f), pxY(top))
+    }
+
+    fun selectionBottom(): Float = pxY(selection.maxOfOrNull { it.bottom } ?: 0f)
+
+    /** Word-style zoom: 100 % is the real paper size on this screen. */
+    fun zoomPercent(xdpi: Float): Int = if (xdpi <= 0f) 100 else (1440f * scale / xdpi * 100f).roundToInt()
 
     fun zoomBy(f: Float) = transform(Offset(viewSize.width / 2f, viewSize.height / 2f), Offset.Zero, f)
     fun fitWidth() = transform(Offset(viewSize.width / 2f, viewSize.height / 2f), Offset.Zero, 1f / zoom)

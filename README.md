@@ -4,7 +4,16 @@ Android app (phone + tablet) to open, edit and export `.docx` files with maximum
 
 ## Status
 
-Viewer milestone done: open .docx (picker, "Open with", share), tiled render with pinch/double-tap zoom and fling, page indicator, PDF export, share. Next: editor.
+Usable Word-like viewer and editor for .docx on Android (arm64):
+
+- Open (picker, "Open with", share), new blank document with Word defaults (A4, Calibri 11 pt), recent files
+- Word-style ribbon (Home, Insert, Layout, References, Review, View, Picture), editable font/size boxes, find and replace
+- Typing, selection handles, floating cut/copy/paste bar, images with wrap modes and corner/edge resize, tables, links, header/footer, footnotes
+- Save a copy (default), explicit "overwrite original", PDF export, print, share
+- Pinch zoom from 20 %, fast-scroll handle, Ctrl shortcuts for hardware keyboards
+
+Known limits: LibreOffice rewrites the whole file on save (SmartArt/charts may change); Microsoft fonts cannot be bundled, so only
+metric clones (Calibri, Cambria, Arial, Times New Roman, Courier New, Arial Narrow) render exactly.
 
 ## Stack
 

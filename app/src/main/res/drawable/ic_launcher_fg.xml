@@ -1,0 +1,10 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- page with a folded corner, kept inside the 66dp adaptive-icon safe zone -->
+    <path android:fillColor="#FFFFFF" android:pathData="M34,24h26l14,14v46h-40z" />
+    <path android:fillColor="#C9D6EE" android:pathData="M60,24v14h14z" />
+    <path android:fillColor="#2B579A" android:pathData="M41,74V50h5l8,12l8,-12h5v24h-5V59l-8,12l-8,-12v15z" />
+</vector>

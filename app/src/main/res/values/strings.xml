@@ -97,4 +97,18 @@
     <string name="reject_all">Reject all</string>
     <string name="g_show">Show</string>
     <string name="formatting_marks">Formatting marks</string>
+    <string name="new_document">New document</string>
+    <string name="new_doc_name">Document1.docx</string>
+    <string name="save_as">Save a copy…</string>
+    <string name="overwrite_original">Overwrite original…</string>
+    <string name="overwrite_title">Overwrite the original?</string>
+    <string name="overwrite_msg">The original file will be replaced. LibreOffice rewrites the whole file, so complex content (SmartArt, charts) may change. Keep a backup if it matters.</string>
+    <string name="overwrite_ok">Overwrite</string>
+    <string name="print">Print</string>
+    <string name="cut">Cut</string>
+    <string name="copy">Copy</string>
+    <string name="replace_with">Replace with</string>
+    <string name="replace">Replace</string>
+    <string name="replace_all">All</string>
+    <string name="keyboard">Keyboard</string>
 </resources>

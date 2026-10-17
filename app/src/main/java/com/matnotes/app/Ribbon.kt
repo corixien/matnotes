@@ -142,6 +142,15 @@ fun Ribbon(state: DocumentViewState, onPickImage: () -> Unit) {
                     }
                 }
                 Text(
+                    "⌨",
+                    Modifier.clip(CircleShape).clickable {
+                        state.wantKeyboard = !state.wantKeyboard
+                        state.focusTick++
+                    }.padding(horizontal = 12.dp, vertical = 4.dp),
+                    fontSize = 20.sp,
+                    color = if (state.wantKeyboard) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
                     if (collapsed) "⌃" else "⌄",
                     Modifier.clip(CircleShape).clickable { collapsed = !collapsed }.padding(horizontal = 14.dp, vertical = 4.dp),
                     fontSize = 20.sp,
@@ -381,28 +390,57 @@ private fun PictureTab(state: DocumentViewState) {
 @Composable
 private fun FindBar(state: DocumentViewState) {
     var text by remember { mutableStateOf("") }
-    fun search(backward: Boolean) {
+    var repl by remember { mutableStateOf("") }
+    var withReplace by remember { mutableStateOf(false) }
+    fun esc(v: String) = v.replace("\\", "\\\\").replace("\"", "\\\"")
+    // SearchItem.Command: 0 = find, 2 = replace, 3 = replace all
+    fun run(command: Int, backward: Boolean = false) {
         if (text.isEmpty()) return
         state.uno(
             ".uno:ExecuteSearch",
-            args(arg("SearchItem.SearchString", "string", text.replace("\\", "\\\\").replace("\"", "\\\"")), arg("SearchItem.Backward", "boolean", "$backward")),
+            args(
+                arg("SearchItem.SearchString", "string", esc(text)),
+                arg("SearchItem.ReplaceString", "string", esc(repl)),
+                arg("SearchItem.Command", "long", "$command"),
+                arg("SearchItem.Backward", "boolean", "$backward"),
+            ),
         )
     }
-    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SearchField(text, stringResource(R.string.find), { text = it }, { run(0) }, Modifier.weight(1f))
+            IconBtn(onClick = { run(0, backward = true) }) { Glyph("▲", 14) }
+            IconBtn(onClick = { run(0) }) { Glyph("▼", 14) }
+            IconBtn(active = withReplace, onClick = { withReplace = !withReplace }) { Glyph("⇄", 16) }
+            IconBtn(onClick = { state.finding = false }) { Glyph("✕", 16) }
+        }
+        if (withReplace) {
+            Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                SearchField(repl, stringResource(R.string.replace_with), { repl = it }, { run(2) }, Modifier.weight(1f))
+                IconBtn(wide = true, onClick = { run(2) }) { Text(stringResource(R.string.replace), fontSize = 13.sp) }
+                IconBtn(wide = true, onClick = { run(3) }) { Text(stringResource(R.string.replace_all), fontSize = 13.sp) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchField(value: String, hint: String, onChange: (String) -> Unit, onGo: () -> Unit, modifier: Modifier) {
+    Box(
+        modifier.height(40.dp).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp)).padding(horizontal = 10.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        if (value.isEmpty()) Text(hint, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 15.sp)
         androidx.compose.foundation.text.BasicTextField(
-            value = text,
-            onValueChange = { text = it },
+            value = value,
+            onValueChange = onChange,
             singleLine = true,
             textStyle = androidx.compose.ui.text.TextStyle(color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp),
             cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
-            keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { search(false) }),
-            modifier = Modifier.weight(1f).height(40.dp)
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp)).padding(horizontal = 10.dp, vertical = 9.dp),
+            keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { onGo() }),
+            modifier = Modifier.fillMaxWidth(),
         )
-        IconBtn(onClick = { search(true) }) { Glyph("▲", 14) }
-        IconBtn(onClick = { search(false) }) { Glyph("▼", 14) }
-        IconBtn(onClick = { state.finding = false }) { Glyph("✕", 16) }
     }
 }
 

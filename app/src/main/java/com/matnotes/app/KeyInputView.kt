@@ -79,6 +79,7 @@ class KeyInputView(context: Context) : View(context) {
 
     private fun handleKey(event: KeyEvent): Boolean {
         val t = target ?: return false
+        if (event.isCtrlPressed && shortcut(t, event)) return true
         val awt = when (event.keyCode) {
             KeyEvent.KEYCODE_DEL -> Keys.BACKSPACE
             KeyEvent.KEYCODE_FORWARD_DEL -> Keys.DELETE
@@ -98,6 +99,30 @@ class KeyInputView(context: Context) : View(context) {
         val ch = event.unicodeChar
         if (ch > 0 && !event.isCtrlPressed) { t.typeText(String(Character.toChars(ch))); return true }
         return false
+    }
+
+    /** Word's familiar shortcuts for Bluetooth keyboards. */
+    private fun shortcut(t: DocumentViewState, e: KeyEvent): Boolean {
+        val shift = e.isShiftPressed
+        when (e.keyCode) {
+            KeyEvent.KEYCODE_B -> t.charFormat(".uno:Bold")
+            KeyEvent.KEYCODE_I -> t.charFormat(".uno:Italic")
+            KeyEvent.KEYCODE_U -> t.charFormat(".uno:Underline")
+            KeyEvent.KEYCODE_Z -> t.uno(if (shift) ".uno:Redo" else ".uno:Undo")
+            KeyEvent.KEYCODE_Y -> t.uno(".uno:Redo")
+            KeyEvent.KEYCODE_X -> t.uno(".uno:Cut")
+            KeyEvent.KEYCODE_C -> t.uno(".uno:Copy")
+            KeyEvent.KEYCODE_V -> t.uno(".uno:Paste")
+            KeyEvent.KEYCODE_A -> t.uno(".uno:SelectAll")
+            KeyEvent.KEYCODE_L -> t.uno(".uno:LeftPara")
+            KeyEvent.KEYCODE_E -> t.uno(".uno:CenterPara")
+            KeyEvent.KEYCODE_R -> t.uno(".uno:RightPara")
+            KeyEvent.KEYCODE_J -> t.uno(".uno:JustifyPara")
+            KeyEvent.KEYCODE_F -> t.finding = true
+            KeyEvent.KEYCODE_S -> t.onSave?.invoke()
+            else -> return false
+        }
+        return true
     }
 
     fun showKeyboard() {

@@ -97,4 +97,18 @@
     <string name="reject_all">Alle ablehnen</string>
     <string name="g_show">Anzeigen</string>
     <string name="formatting_marks">Formatierungs-zeichen</string>
+    <string name="new_document">Neues Dokument</string>
+    <string name="new_doc_name">Dokument1.docx</string>
+    <string name="save_as">Kopie speichern…</string>
+    <string name="overwrite_original">Original überschreiben…</string>
+    <string name="overwrite_title">Original überschreiben?</string>
+    <string name="overwrite_msg">Die Originaldatei wird ersetzt. LibreOffice schreibt die ganze Datei neu, komplexe Inhalte (SmartArt, Diagramme) können sich dabei ändern. Bei wichtigen Dateien vorher ein Backup anlegen.</string>
+    <string name="overwrite_ok">Überschreiben</string>
+    <string name="print">Drucken</string>
+    <string name="cut">Ausschneiden</string>
+    <string name="copy">Kopieren</string>
+    <string name="replace_with">Ersetzen durch</string>
+    <string name="replace">Ersetzen</string>
+    <string name="replace_all">Alle</string>
+    <string name="keyboard">Tastatur</string>
 </resources>

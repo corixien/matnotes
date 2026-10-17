@@ -18,6 +18,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
@@ -29,7 +30,8 @@ import java.util.UUID
 
 private const val TAG = "MatNotes"
 
-private class OpenDoc(val doc: LoDocument, val title: String, val state: DocumentViewState)
+/** [source] is the Uri the document was opened from (null for new documents). */
+private class OpenDoc(val doc: LoDocument, val title: String, val state: DocumentViewState, val source: Uri?)
 
 class MainActivity : ComponentActivity() {
     private lateinit var recents: Recents
@@ -41,6 +43,7 @@ class MainActivity : ComponentActivity() {
     private var saveUri by mutableStateOf<Uri?>(null)
     private var closeAfterSave = false
     private var confirmClose by mutableStateOf(false)
+    private var confirmOverwrite by mutableStateOf(false)
 
     private val createDoc = registerForActivityResult(ActivityResultContracts.CreateDocument(DOCX_MIME)) { uri ->
         if (uri != null) { saveUri = uri; doSave() } else closeAfterSave = false
@@ -58,10 +61,21 @@ class MainActivity : ComponentActivity() {
         File(cacheDir, "share").deleteRecursively()
         setContent {
             MatNotesTheme {
-                val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                // ask for write access too, so 'overwrite original' works when the provider allows it
+                val pickContract = remember {
+                    object : ActivityResultContracts.OpenDocument() {
+                        override fun createIntent(context: android.content.Context, input: Array<String>) =
+                            super.createIntent(context, input).addFlags(
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION,
+                            )
+                    }
+                }
+                val picker = rememberLauncherForActivityResult(pickContract) { uri ->
                     if (uri != null) {
-                        runCatching {
-                            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        val rw = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                        runCatching { contentResolver.takePersistableUriPermission(uri, rw) }.onFailure {
+                            runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
                         }
                         openUri(uri)
                     }
@@ -87,23 +101,41 @@ class MainActivity : ComponentActivity() {
                         },
                     )
                 }
+                if (confirmOverwrite) {
+                    AlertDialog(
+                        onDismissRequest = { confirmOverwrite = false },
+                        title = { Text(stringResource(R.string.overwrite_title)) },
+                        text = { Text(stringResource(R.string.overwrite_msg)) },
+                        confirmButton = {
+                            TextButton({ confirmOverwrite = false; overwriteOriginal() }) { Text(stringResource(R.string.overwrite_ok)) }
+                        },
+                        dismissButton = { TextButton({ confirmOverwrite = false }) { Text(stringResource(R.string.cancel)) } },
+                    )
+                }
                 when {
                     loading -> LoadingScreen()
                     cur != null -> ViewerScreen(
                         title = cur.title,
                         state = cur.state,
                         busy = busy,
-                        onBack = ::requestClose,
-                        onExportPdf = { export("pdf", "application/pdf") },
-                        onShareDoc = { export("docx", DOCX_MIME) },
-                        onSave = ::save,
-                        onPickImage = { pickImage.launch("image/*") },
+                        actions = ViewerActions(
+                            onBack = ::requestClose,
+                            onSave = ::save,
+                            onSaveAs = { saveUri = null; save() },
+                            onOverwrite = if (cur.source != null && cur.source.scheme == "content") ({ confirmOverwrite = true }) else null,
+                            onPrint = ::printDocument,
+                            onExportPdf = { export("pdf", "application/pdf") },
+                            onShareDoc = { export("docx", DOCX_MIME) },
+                            onPickImage = { pickImage.launch("image/*") },
+                        ),
                     )
                     else -> HomeScreen(
                         recents = recentList,
                         error = error,
+                        onNew = ::newDocument,
                         onOpen = { picker.launch(arrayOf("*/*")) },
                         onOpenRecent = { openUri(Uri.parse(it.uri)) },
+                        onRemoveRecent = { recents.remove(it.uri); recentList = recents.list() },
                     )
                 }
             }
@@ -159,7 +191,11 @@ class MainActivity : ComponentActivity() {
                 } else {
                     current?.let { closeDocument() }
                     saveUri = null
-                    current = OpenDoc(doc, name, DocumentViewState(doc, lifecycleScope, resources.displayMetrics.density))
+                    current = OpenDoc(
+                        doc, name,
+                        DocumentViewState(doc, lifecycleScope, resources.displayMetrics.density).also { it.onSave = ::save },
+                        uri,
+                    )
                     recents.add(uri.toString(), name)
                     recentList = recents.list()
                 }
@@ -169,6 +205,65 @@ class MainActivity : ComponentActivity() {
             } finally {
                 loading = false
             }
+        }
+    }
+
+    /** Blank A4 document with Word's defaults (Calibri 11 pt, 2.54 cm margins, 8 pt paragraph spacing). */
+    private fun newDocument() {
+        loading = true
+        error = null
+        lifecycleScope.launch {
+            try {
+                val name = getString(R.string.new_doc_name)
+                val file = withContext(Dispatchers.IO) {
+                    val dir = File(cacheDir, "open/${UUID.randomUUID()}").apply { mkdirs() }
+                    File(dir, name).also { f ->
+                        resources.openRawResource(R.raw.blank).use { i -> f.outputStream().use { o -> i.copyTo(o) } }
+                    }
+                }
+                val doc = Engine.open(this@MainActivity, file)
+                if (doc == null) {
+                    error = getString(R.string.open_failed)
+                } else {
+                    current?.let { closeDocument() }
+                    saveUri = null
+                    val st = DocumentViewState(doc, lifecycleScope, resources.displayMetrics.density).also { it.onSave = ::save }
+                    current = OpenDoc(doc, name, st, null)
+                    st.editing = true
+                    st.wantKeyboard = true
+                }
+            } catch (e: Throwable) {
+                Log.e(TAG, "new document failed", e)
+                error = getString(R.string.open_failed)
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    /** Explicit, confirmed write back to the file the document was opened from. */
+    private fun overwriteOriginal() {
+        val c = current ?: return
+        saveUri = c.source ?: return
+        doSave()
+    }
+
+    private fun printDocument() {
+        val c = current ?: return
+        busy = true
+        lifecycleScope.launch {
+            val out = withContext(Engine.dispatcher) {
+                val dir = File(cacheDir, "share").apply { mkdirs() }
+                val f = File(dir, c.title.substringBeforeLast('.') + ".pdf")
+                if (c.doc.saveAs(f, "pdf")) f else null
+            }
+            busy = false
+            if (out == null) {
+                android.widget.Toast.makeText(this@MainActivity, R.string.export_failed, android.widget.Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            val pm = getSystemService(PRINT_SERVICE) as android.print.PrintManager
+            pm.print(c.title, PdfPrintAdapter(out, c.title), null)
         }
     }
 
