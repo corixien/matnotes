@@ -60,7 +60,7 @@ private val CursorColor = Color(0xFF1B1B1B)
 
 private data class TileKey(val page: Int, val level: Int, val tx: Int, val ty: Int)
 
-private class Tile(val bmp: Bitmap, val version: Int)
+private class Tile(val bmp: Bitmap, @Volatile var stale: Boolean = false)
 
 private enum class Drag { SelStart, SelEnd, GraphicBody, GraphicHandle }
 
@@ -82,6 +82,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     var cursorVisible by mutableStateOf(true)
         private set
     var blinkOn by mutableStateOf(true)
+    var blinkReset by mutableIntStateOf(0)
     var selection by mutableStateOf<List<RectF>>(emptyList())
         private set
     var selStart by mutableStateOf<RectF?>(null)
@@ -100,8 +101,10 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     }
     private val main = Handler(Looper.getMainLooper())
 
-    /** Bumped after every edit: tiles rendered with an older version are drawn until re-rendered. */
-    @Volatile private var editVersion = 0
+    /** Bumped on every invalidation: a tile rendered while the counter moved is stale and re-rendered. */
+    @Volatile private var gen = 0
+    private var settleScheduled = false
+    private var lastEditAt = 0L
     private val inflight = HashSet<TileKey>()
     @Volatile private var wanted: Set<TileKey> = emptySet()
     private var fling: Job? = null
@@ -136,6 +139,11 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
                 centroid.y - (centroid.y - offset.y) * k + pan.y,
             ),
         )
+    }
+
+    fun onViewSize(sz: IntSize) {
+        if (sz.width != viewSize.width) { cache.evictAll(); inflight.clear() }
+        viewSize = sz
     }
 
     fun stopFling() { fling?.cancel() }
@@ -174,10 +182,41 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     // ---- edit actions ----
     /** Runs [block] on the engine thread, then refreshes layout and marks all tiles stale. */
     private fun edit(block: LoDocument.() -> Unit) {
+        lastEditAt = android.os.SystemClock.uptimeMillis()
+        blinkOn = true; blinkReset++ // caret stays solid while typing, like Word
         doc.post {
             block()
             refreshLayout()
-            main.post { this@DocumentViewState.layout = doc.layout; editVersion++; tick++ }
+            main.post {
+                this@DocumentViewState.layout = doc.layout
+                markStale(nearCursor())
+                scheduleSettle()
+            }
+        }
+    }
+
+    /**
+     * LibreOffice applies key/mouse/uno input asynchronously and sends no tile invalidations here, so a render
+     * right after posting the event would show the old text. Re-render the area around the cursor now, again when
+     * LibreOffice reports the cursor/selection change, and everything once input has settled.
+     */
+    private fun nearCursor(): RectF? {
+        val c = cursor ?: return null
+        val line = max(c.height(), 200f)
+        return RectF(0f, c.top - line, layout.width.toFloat(), c.bottom + 6 * line)
+    }
+
+    private fun scheduleSettle() {
+        if (settleScheduled) main.removeCallbacks(settle)
+        settleScheduled = true
+        main.postDelayed(settle, 300)
+    }
+
+    private val settle = Runnable {
+        settleScheduled = false
+        doc.post {
+            refreshLayout()
+            main.post { this@DocumentViewState.layout = doc.layout; markStale(null) }
         }
     }
 
@@ -324,9 +363,11 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
             Document.CALLBACK_DOCUMENT_SIZE_CHANGED -> { layout = doc.layout; tick++ }
             Document.CALLBACK_INVALIDATE_VISIBLE_CURSOR -> {
                 cursor = parseRects(payload).firstOrNull()
+                if (android.os.SystemClock.uptimeMillis() - lastEditAt < 1500) { markStale(nearCursor()); scheduleSettle() }
                 if (followCursor) scrollToCursor()
             }
             Document.CALLBACK_CURSOR_VISIBLE -> cursorVisible = payload.trim() == "true"
+            Document.CALLBACK_GRAPHIC_VIEW_SELECTION, Document.CALLBACK_REDLINE_TABLE_ENTRY_MODIFIED -> scheduleSettle()
             Document.CALLBACK_TEXT_SELECTION -> {
                 selection = parseRects(payload)
                 if (finding) selection.firstOrNull()?.let { scrollToRect(it) }
@@ -350,9 +391,25 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
         }
     }
 
-    private fun invalidate(r: RectF?) {
-        if (r == null) cache.evictAll()
-        editVersion++
+    private fun invalidate(r: RectF?) = markStale(r)
+
+    private fun tileRect(k: TileKey): RectF? {
+        val p = layout.pages.getOrNull(k.page) ?: return null
+        val rs = base * (k.level / BASE_LEVEL.toFloat())
+        if (rs <= 0f) return null
+        val t = tileTwips(rs)
+        val x = p.x + k.tx * t.toFloat(); val y = p.y + k.ty * t.toFloat()
+        return RectF(x, y, x + min(t, p.w - k.tx * t).toFloat(), y + min(t, p.h - k.ty * t).toFloat())
+    }
+
+    /** Marks cached tiles intersecting [r] (document twips; null = all) stale. Stale tiles stay visible until re-rendered. */
+    private fun markStale(r: RectF?) {
+        gen++
+        for ((k, t) in cache.snapshot()) {
+            if (r == null) t.stale = true
+            else tileRect(k)?.let { if (RectF.intersects(it, r)) t.stale = true }
+        }
+        tick++
     }
 
     fun scrollToRect(r: RectF) {
@@ -375,6 +432,8 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
         else if (top - margin < 0f) dy = margin - top
         if (dy != 0f) offset = clamp(offset.copy(y = offset.y + dy))
     }
+
+    private fun tileTwips(renderScale: Float) = (TILE_PX / renderScale).toInt().coerceAtLeast(1)
 
     // ---- drawing ----
     private fun level(): Int = ceil(zoom * BASE_LEVEL - 0.001f).toInt().coerceIn(BASE_LEVEL, (MAX_ZOOM * BASE_LEVEL).toInt())
@@ -405,7 +464,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
         pi: Int, p: PageRect, level: Int, px: Float, py: Float, zb: Float, want: MutableSet<TileKey>, request: Boolean,
     ) {
         val rs = base * (level / BASE_LEVEL.toFloat())
-        val tileTw = TILE_PX / rs
+        val tileTw = tileTwips(rs).toFloat()
         val cols = ceil(p.w / tileTw).toInt()
         val rows = ceil(p.h / tileTw).toInt()
         val x0 = max(0, ((0f - px) / (tileTw * zb)).toInt())
@@ -421,16 +480,18 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
             val twH = min(tileTw, p.h - twY)
             val t = cache.get(k)
             if (t != null) drawBitmap(t.bmp, px + twX * zb, py + twY * zb, twW * zb, twH * zb)
-            if (request && (t == null || t.version != editVersion)) request(k)
+            if (request && (t == null || t.stale)) request(k)
         }
     }
 
     private fun DrawScope.drawBitmap(bmp: Bitmap, x: Float, y: Float, w: Float, h: Float) {
-        // overlap by one pixel to avoid hairline seams between tiles
+        // snap both edges to whole pixels so neighbouring tiles meet without gaps or stretching
+        val l = x.roundToInt(); val t = y.roundToInt()
+        val r = (x + w).roundToInt(); val b = (y + h).roundToInt()
         drawImage(
             bmp.asImageBitmap(),
-            dstOffset = IntOffset(x.roundToInt(), y.roundToInt()),
-            dstSize = IntSize(w.roundToInt().coerceAtLeast(1) + 1, h.roundToInt().coerceAtLeast(1) + 1),
+            dstOffset = IntOffset(l, t),
+            dstSize = IntSize((r - l).coerceAtLeast(1), (b - t).coerceAtLeast(1)),
         )
     }
 
@@ -469,8 +530,8 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
         if (c != null && cursorVisible && blinkOn && selection.isEmpty() && graphic == null) {
             drawRect(
                 CursorColor,
-                Offset(pxX(c.left) - 0.5f * density, pxY(c.top)),
-                Size(1f * density, c.height() * zb),
+                Offset(pxX(c.left).roundToInt().toFloat() + 1f, pxY(c.top)),
+                Size(max(2f, 0.75f * density), c.height() * zb),
             )
         }
     }
@@ -484,13 +545,13 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     private fun request(k: TileKey) {
         if (!inflight.add(k)) return
         val b = base
-        val v0 = editVersion
+        val g0 = gen
         scope.launch {
             val bmp = withContext(Engine.dispatcher) {
                 if (k !in wanted) return@withContext null
                 val p = layout.pages.getOrNull(k.page) ?: return@withContext null
                 val rs = b * (k.level / BASE_LEVEL.toFloat())
-                val tileTw = (TILE_PX / rs).toInt().coerceAtLeast(1)
+                val tileTw = tileTwips(rs)
                 val xTw = k.tx * tileTw
                 val yTw = k.ty * tileTw
                 val wTw = min(tileTw, p.w - xTw)
@@ -503,7 +564,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
                 )
             }
             inflight.remove(k)
-            if (bmp != null) cache.put(k, Tile(bmp, v0))
+            if (bmp != null) cache.put(k, Tile(bmp, stale = g0 != gen))
             tick++ // redraw: shows the tile or re-requests what is still visible
         }
     }
@@ -512,10 +573,11 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
 @Composable
 fun DocumentView(state: DocumentViewState, modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
-    LaunchedEffect(state.editing) {
+    LaunchedEffect(state.editing, state.blinkReset) {
+        state.blinkOn = true
         while (state.editing) {
-            state.blinkOn = !state.blinkOn
             delay(530)
+            state.blinkOn = !state.blinkOn
         }
         state.blinkOn = true
     }
@@ -524,7 +586,7 @@ fun DocumentView(state: DocumentViewState, modifier: Modifier = Modifier) {
             .fillMaxSize()
             .clipToBounds()
             .onSizeChanged {
-                state.viewSize = it
+                state.onViewSize(it)
                 state.offset = state.clamp(state.offset)
                 if (state.editing) state.scrollToCursor()
             }
