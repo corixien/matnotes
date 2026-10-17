@@ -95,6 +95,8 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     var format by mutableStateOf<Map<String, String>>(emptyMap())
         private set
     var wantKeyboard by mutableStateOf(false)
+    /** Ribbon tab the UI should switch to (-1 = none). */
+    var ribbonTabRequest by mutableIntStateOf(-1)
     var focusTick by mutableIntStateOf(0) // bump to move focus back to the document input
     var finding by mutableStateOf(false)
 
@@ -248,6 +250,20 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     fun uno(cmd: String, args: String = "") { if (cmd != ".uno:Copy") markDirty(); edit { uno(cmd, args) } }
     fun markDirty() { dirty = true }
 
+    /** Long press: select an image/shape under the finger, otherwise select the word (double click). */
+    fun longPress(at: Offset) {
+        click(at, 1)
+        main.postDelayed({ if (graphic == null && selection.isEmpty()) click(at, 2) }, 380)
+    }
+
+    /** Top-centre / bottom of the selected image or shape in view pixels (for its floating toolbar). */
+    fun graphicAnchor(): Offset? {
+        val g = graphic ?: return null
+        return Offset(pxX((g.left + g.right) / 2f), pxY(g.top))
+    }
+
+    fun graphicBottom(): Float = pxY(graphic?.bottom ?: 0f)
+
     /** Character formatting: like Word, applies to the word under the cursor when nothing is selected. */
     fun charFormat(cmd: String, args: String = "") {
         markDirty()
@@ -295,6 +311,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     private var dragHandleTw = Offset.Zero
     private var dragPos = Offset.Zero
     private var dragHandleIdx = -1
+    private var dragRect = RectF()
     var preview by mutableStateOf<RectF?>(null)
         private set
 
@@ -326,8 +343,12 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
                 val s = scale
                 startDrag(Drag.GraphicHandle, p, h, 0f)
                 dragHandleIdx = idx
+                dragRect = RectF(g)
                 markDirty()
-                edit { setGraphicSelection(Document.SET_GRAPHIC_SELECTION_START, h.x.roundToInt(), h.y.roundToInt(), s) }
+                // corners are resized as two independent edge drags at the end (LibreOffice would keep the aspect ratio)
+                if (idx !in corners) {
+                    edit { setGraphicSelection(Document.SET_GRAPHIC_SELECTION_START, h.x.roundToInt(), h.y.roundToInt(), s) }
+                }
                 return true
             }
             if (g.contains(twX(p.x), twY(p.y))) {
@@ -396,15 +417,51 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
         val kind = drag ?: return
         drag = null
         val cur = Offset(twX(dragPos.x), twY(dragPos.y))
+        val delta = cur - dragStartTw
         when (kind) {
-            Drag.GraphicBody, Drag.GraphicHandle -> {
-                val pt = (if (kind == Drag.GraphicBody) dragStartTw else dragHandleTw) + (cur - dragStartTw)
+            Drag.GraphicBody -> {
+                val pt = dragStartTw + delta
                 preview = null
                 val s = scale
                 edit { setGraphicSelection(Document.SET_GRAPHIC_SELECTION_END, pt.x.roundToInt(), pt.y.roundToInt(), s) }
             }
+            Drag.GraphicHandle -> {
+                preview = null
+                val s = scale
+                val idx = dragHandleIdx
+                if (idx in listOf(0, 2, 5, 7)) {
+                    resizeCorner(idx, delta, s)
+                } else {
+                    val pt = dragHandleTw + delta
+                    edit { setGraphicSelection(Document.SET_GRAPHIC_SELECTION_END, pt.x.roundToInt(), pt.y.roundToInt(), s) }
+                }
+            }
             else -> Unit
         }
+    }
+
+    /**
+     * Free corner resize: drag the vertical edge handle by dy, then (after LibreOffice applied it) the horizontal edge
+     * handle by dx. Handle indices: 0 TL, 1 T, 2 TR, 3 L, 4 R, 5 BL, 6 B, 7 BR.
+     */
+    private fun resizeCorner(idx: Int, d: Offset, s: Float) {
+        val r = dragRect
+        val top = idx == 0 || idx == 2
+        val left = idx == 0 || idx == 5
+        val cx = (r.left + r.right) / 2f
+        val vy = if (top) r.top else r.bottom
+        fun drag(from: Offset, to: Offset) {
+            edit {
+                setGraphicSelection(Document.SET_GRAPHIC_SELECTION_START, from.x.roundToInt(), from.y.roundToInt(), s)
+                setGraphicSelection(Document.SET_GRAPHIC_SELECTION_END, to.x.roundToInt(), to.y.roundToInt(), s)
+            }
+        }
+        drag(Offset(cx, vy), Offset(cx, vy + d.y))
+        val newTop = if (top) r.top + d.y else r.top
+        val newBottom = if (top) r.bottom else r.bottom + d.y
+        val hx = if (left) r.left else r.right
+        val hy = (newTop + newBottom) / 2f
+        main.postDelayed({ drag(Offset(hx, hy), Offset(hx + d.x, hy)) }, 350)
     }
 
     // ---- LibreOfficeKit callbacks (main thread) ----
@@ -646,7 +703,7 @@ fun DocumentView(state: DocumentViewState, modifier: Modifier = Modifier) {
                 detectTapGestures(
                     onTap = { if (state.editing) state.click(it) },
                     onDoubleTap = { if (state.editing) state.click(it, 2) else state.toggleZoom(it) },
-                    onLongPress = { if (state.editing) state.click(it, 2) },
+                    onLongPress = { if (state.editing) state.longPress(it) },
                 )
             }
             .pointerInput(Unit) {

@@ -31,7 +31,9 @@ import java.util.UUID
 private const val TAG = "MatNotes"
 
 /** [source] is the Uri the document was opened from (null for new documents). */
-private class OpenDoc(val doc: LoDocument, val title: String, val state: DocumentViewState, val source: Uri?)
+private class OpenDoc(val doc: LoDocument, title: String, val state: DocumentViewState, val source: Uri?) {
+    var title by mutableStateOf(title)
+}
 
 class MainActivity : ComponentActivity() {
     private lateinit var recents: Recents
@@ -44,6 +46,9 @@ class MainActivity : ComponentActivity() {
     private var closeAfterSave = false
     private var confirmClose by mutableStateOf(false)
     private var confirmOverwrite by mutableStateOf(false)
+    private var shareDialog by mutableStateOf(false)
+    private var nameDialog by mutableStateOf<String?>(null)
+    private var myDocs by mutableStateOf<List<StoredDoc>>(emptyList())
 
     private val createDoc = registerForActivityResult(ActivityResultContracts.CreateDocument(DOCX_MIME)) { uri ->
         if (uri != null) { saveUri = uri; doSave() } else closeAfterSave = false
@@ -57,6 +62,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         recents = Recents(this)
         recentList = recents.list()
+        refreshStore()
         File(cacheDir, "open").deleteRecursively()
         File(cacheDir, "share").deleteRecursively()
         setContent {
@@ -81,10 +87,8 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 val cur = current
-                BackHandler(enabled = cur != null) {
-                    if (cur?.state?.editing == true && cur.state.wantKeyboard) cur.state.wantKeyboard = false
-                    else requestClose()
-                }
+                // the system hides a visible keyboard on the first Back; this runs when it is already hidden
+                BackHandler(enabled = cur != null) { requestClose() }
                 if (confirmClose) {
                     AlertDialog(
                         onDismissRequest = { confirmClose = false },
@@ -112,6 +116,10 @@ class MainActivity : ComponentActivity() {
                         dismissButton = { TextButton({ confirmOverwrite = false }) { Text(stringResource(R.string.cancel)) } },
                     )
                 }
+                if (shareDialog) ShareDialog({ shareDialog = false }) { fmt, email -> shareDocument(fmt, email) }
+                nameDialog?.let { initial ->
+                    NameDialog(initial, { nameDialog = null }) { n -> saveToStore(if (n.endsWith(".docx", true)) n else "$n.docx") }
+                }
                 when {
                     loading -> LoadingScreen()
                     cur != null -> ViewerScreen(
@@ -121,19 +129,21 @@ class MainActivity : ComponentActivity() {
                         actions = ViewerActions(
                             onBack = ::requestClose,
                             onSave = ::save,
-                            onSaveAs = { saveUri = null; save() },
+                            onSaveAs = { saveUri = null; createDoc.launch(defaultCopyName(cur)) },
                             onOverwrite = if (cur.source != null && cur.source.scheme == "content") ({ confirmOverwrite = true }) else null,
                             onPrint = ::printDocument,
-                            onExportPdf = { export("pdf", "application/pdf") },
-                            onShareDoc = { export("docx", DOCX_MIME) },
+                            onShare = { shareDialog = true },
                             onPickImage = { pickImage.launch("image/*") },
+                            onPageSetup = ::applyPageSetup,
                         ),
                     )
                     else -> HomeScreen(
+                        myDocs = myDocs,
                         recents = recentList,
                         error = error,
                         onNew = ::newDocument,
                         onOpen = { picker.launch(arrayOf("*/*")) },
+                        onOpenStored = { openUri(it.uri) },
                         onOpenRecent = { openUri(Uri.parse(it.uri)) },
                         onRemoveRecent = { recents.remove(it.uri); recentList = recents.list() },
                     )
@@ -190,7 +200,8 @@ class MainActivity : ComponentActivity() {
                     error = getString(R.string.open_failed)
                 } else {
                     current?.let { closeDocument() }
-                    saveUri = null
+                    // documents from Documents/MatNotes are the app's own: Save writes straight back to them
+                    saveUri = if (myDocs.any { it.uri == uri }) uri else null
                     current = OpenDoc(
                         doc, name,
                         DocumentViewState(doc, lifecycleScope, resources.displayMetrics.density).also { it.onSave = ::save },
@@ -280,14 +291,37 @@ class MainActivity : ComponentActivity() {
         if (c.state.dirty) confirmClose = true else closeDocument()
     }
 
-    /** First save asks for a target (a new copy); the original is never overwritten implicitly. */
+    private fun defaultCopyName(c: OpenDoc) = c.title.substringBeforeLast('.') + " (MatNotes).docx"
+
+    /**
+     * Save: new documents ask for a name and go to Documents/MatNotes; opened documents are saved as a copy there
+     * (the original is never overwritten implicitly). Without MediaStore support the file picker is used.
+     */
     private fun save() {
         val c = current ?: return
-        if (saveUri == null) {
-            createDoc.launch(c.title.substringBeforeLast('.') + " (MatNotes).docx")
+        when {
+            saveUri != null -> doSave()
+            !DocStore.supported -> createDoc.launch(defaultCopyName(c))
+            c.source == null -> nameDialog = c.title.substringBeforeLast('.')
+            else -> saveToStore(defaultCopyName(c))
+        }
+    }
+
+    private fun saveToStore(fileName: String) {
+        val uri = DocStore.create(this, fileName, DOCX_MIME)
+        if (uri == null) {
+            createDoc.launch(fileName)
         } else {
+            saveUri = uri
             doSave()
         }
+    }
+
+    private fun refreshStore() { myDocs = DocStore.list(this) }
+
+    override fun onResume() {
+        super.onResume()
+        refreshStore()
     }
 
     private fun doSave() {
@@ -311,6 +345,10 @@ class MainActivity : ComponentActivity() {
             busy = false
             if (ok) {
                 c.state.dirty = false
+                DocStore.displayName(this@MainActivity, target)?.let { c.title = it }
+                recents.add(target.toString(), c.title)
+                recentList = recents.list()
+                refreshStore()
                 android.widget.Toast.makeText(this@MainActivity, R.string.saved, android.widget.Toast.LENGTH_SHORT).show()
                 if (closeAfterSave) { closeAfterSave = false; closeDocument() }
             } else {
@@ -342,28 +380,66 @@ class MainActivity : ComponentActivity() {
         return when (type) { "image/png" -> "png"; "image/gif" -> "gif"; "image/webp" -> "webp"; else -> "jpg" }
     }
 
-    private fun export(format: String, mime: String) {
+    /** Exports to [format] (docx, odt, pdf) and hands it to the system share sheet or to an e-mail app as attachment. */
+    private fun shareDocument(format: String, email: Boolean) {
         val c = current ?: return
         busy = true
         lifecycleScope.launch {
+            val mime = when (format) {
+                "pdf" -> "application/pdf"
+                "odt" -> ODT_MIME
+                else -> DOCX_MIME
+            }
             val out = withContext(Engine.dispatcher) {
                 val dir = File(cacheDir, "share").apply { mkdirs() }
-                val base = c.title.substringBeforeLast('.')
-                val f = File(dir, "$base.$format")
+                val f = File(dir, c.title.substringBeforeLast('.') + "." + format)
                 if (c.doc.saveAs(f, format)) f else null
             }
             busy = false
             if (out == null) {
-                error = getString(R.string.export_failed)
+                android.widget.Toast.makeText(this@MainActivity, R.string.export_failed, android.widget.Toast.LENGTH_LONG).show()
                 return@launch
             }
             val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.files", out)
-            val send = Intent(Intent.ACTION_SEND)
-                .setType(mime)
+            // mailto: restricts the chooser to e-mail apps; they open a compose screen (to, subject, text) with the file attached
+            val send = (if (email) Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:")) else Intent(Intent.ACTION_SEND).setType(mime))
                 .putExtra(Intent.EXTRA_STREAM, uri)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            if (email) send.putExtra(Intent.EXTRA_SUBJECT, c.title.substringBeforeLast('.'))
             send.clipData = android.content.ClipData.newRawUri(c.title, uri)
-            startActivity(Intent.createChooser(send, getString(R.string.share_via)))
+            try {
+                startActivity(Intent.createChooser(send, getString(if (email) R.string.share_email else R.string.share_via)))
+            } catch (e: android.content.ActivityNotFoundException) {
+                android.widget.Toast.makeText(this@MainActivity, R.string.no_email_app, android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    /** Applies page size / orientation / margins to the exported docx and reloads the document. */
+    private fun applyPageSetup(change: PageSetupChange) {
+        val cur = current ?: return
+        busy = true
+        lifecycleScope.launch {
+            try {
+                val dir = File(cacheDir, "open/${UUID.randomUUID()}").apply { mkdirs() }
+                val src = File(dir, "in.docx")
+                val dst = File(dir, cur.title)
+                val exported = withContext(Engine.dispatcher) { cur.doc.saveAs(src, "docx") }
+                check(exported) { "export failed" }
+                withContext(Dispatchers.IO) { PageSetup.apply(src, dst, change) }
+                val doc = Engine.open(this@MainActivity, dst) ?: error("reload failed")
+                val st = DocumentViewState(doc, lifecycleScope, resources.displayMetrics.density).also { it.onSave = ::save }
+                st.editing = cur.state.editing
+                st.dirty = true
+                current = OpenDoc(doc, cur.title, st, cur.source)
+                lifecycleScope.launch(Engine.dispatcher) { cur.doc.close() }
+                android.widget.Toast.makeText(this@MainActivity, R.string.page_setup_applied, android.widget.Toast.LENGTH_SHORT).show()
+            } catch (e: Throwable) {
+                Log.e(TAG, "page setup failed", e)
+                android.widget.Toast.makeText(this@MainActivity, R.string.export_failed, android.widget.Toast.LENGTH_LONG).show()
+            } finally {
+                busy = false
+            }
         }
     }
 
@@ -387,5 +463,6 @@ class MainActivity : ComponentActivity() {
 
     private companion object {
         const val DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        const val ODT_MIME = "application/vnd.oasis.opendocument.text"
     }
 }

@@ -9,7 +9,9 @@ Usable Word-like viewer and editor for .docx on Android (arm64):
 - Open (picker, "Open with", share), new blank document with Word defaults (A4, Calibri 11 pt), recent files
 - Word-style ribbon (Home, Insert, Layout, References, Review, View, Picture), editable font/size boxes, find and replace
 - Typing, selection handles, floating cut/copy/paste bar, images with wrap modes and corner/edge resize, tables, links, header/footer, footnotes
-- Save a copy (default), explicit "overwrite original", PDF export, print, share
+- Documents are stored in Documents/MatNotes (MediaStore, no permission); save a copy, explicit "overwrite original", print
+- Share/export as .docx, .odt or .pdf via the system sheet or as an e-mail attachment
+- Page setup (margins, orientation, size) via docx rewrite + reload; free corner resize for images and shapes
 - Pinch zoom from 20 %, fast-scroll handle, Ctrl shortcuts for hardware keyboards
 
 Known limits: LibreOffice rewrites the whole file on save (SmartArt/charts may change); Microsoft fonts cannot be bundled, so only

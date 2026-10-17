@@ -44,6 +44,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
@@ -66,13 +67,17 @@ import kotlin.math.roundToInt
 
 @Composable
 fun HomeScreen(
+    myDocs: List<StoredDoc>,
     recents: List<RecentFile>,
     error: String?,
     onNew: () -> Unit,
     onOpen: () -> Unit,
+    onOpenStored: (StoredDoc) -> Unit,
     onOpenRecent: (RecentFile) -> Unit,
     onRemoveRecent: (RecentFile) -> Unit,
 ) {
+    val storedUris = remember(myDocs) { myDocs.map { it.uri.toString() }.toSet() }
+    val others = recents.filter { it.uri !in storedUris }
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 20.dp)) {
         Text(
             "MatNotes",
@@ -94,49 +99,56 @@ fun HomeScreen(
         if (error != null) {
             Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 12.dp))
         }
-        Text(
-            stringResource(R.string.recent),
-            Modifier.padding(top = 28.dp, bottom = 4.dp),
-            style = MaterialTheme.typography.titleMedium,
-        )
-        if (recents.isEmpty()) {
-            Text(
-                stringResource(R.string.no_recent),
-                Modifier.padding(top = 8.dp),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        } else {
-            val fmt = remember { DateFormat.getDateInstance(DateFormat.MEDIUM) }
-            LazyColumn {
-                items(recents, key = { it.uri }) { r ->
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { onOpenRecent(r) }.padding(vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(
-                            Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.primary),
-                            contentAlignment = Alignment.Center,
-                        ) { Text("W", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold, fontSize = 20.sp) }
-                        Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
-                            Text(r.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                fmt.format(Date(r.time)),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Text(
-                            "✕",
-                            Modifier.clip(CircleShape).clickable { onRemoveRecent(r) }.padding(12.dp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+        val fmt = remember { DateFormat.getDateInstance(DateFormat.MEDIUM) }
+        LazyColumn(Modifier.padding(top = 12.dp)) {
+            if (myDocs.isNotEmpty()) {
+                item { SectionTitle(stringResource(R.string.my_documents)) }
+                items(myDocs, key = { "s" + it.uri }) { d -> DocRow(d.name, fmt.format(Date(d.modified)), { onOpenStored(d) }, null) }
+            }
+            item { SectionTitle(stringResource(R.string.recent)) }
+            if (others.isEmpty()) {
+                item {
+                    Text(
+                        stringResource(R.string.no_recent),
+                        Modifier.padding(top = 8.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
+            items(others, key = { "r" + it.uri }) { r -> DocRow(r.name, fmt.format(Date(r.time)), { onOpenRecent(r) }, { onRemoveRecent(r) }) }
         }
     }
+}
+
+@Composable
+private fun SectionTitle(text: String) {
+    Text(text, Modifier.padding(top = 18.dp, bottom = 4.dp), style = MaterialTheme.typography.titleMedium)
+}
+
+@Composable
+private fun DocRow(name: String, subtitle: String, onClick: () -> Unit, onRemove: (() -> Unit)?) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick).padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.primary),
+            contentAlignment = Alignment.Center,
+        ) { Text("W", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold, fontSize = 20.sp) }
+        Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
+            Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyLarge)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (onRemove != null) {
+            Text(
+                "✕",
+                Modifier.clip(CircleShape).clickable(onClick = onRemove).padding(12.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 }
 
 @Composable
@@ -169,12 +181,11 @@ class ViewerActions(
     val onSaveAs: () -> Unit,
     val onOverwrite: (() -> Unit)?,
     val onPrint: () -> Unit,
-    val onExportPdf: () -> Unit,
-    val onShareDoc: () -> Unit,
+    val onShare: () -> Unit,
     val onPickImage: () -> Unit,
+    val onPageSetup: (PageSetupChange) -> Unit,
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ViewerScreen(
     title: String,
@@ -188,29 +199,7 @@ fun ViewerScreen(
         if (state.editing && state.wantKeyboard) v.showKeyboard() else v.hideKeyboard()
     }
     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))) {
-        TopAppBar(
-            title = { Text((if (state.dirty) "• " else "") + title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            navigationIcon = { TextButton(actions.onBack) { Text("‹ " + stringResource(R.string.back)) } },
-            actions = {
-                if (state.editing) {
-                    TextButton(actions.onSave) { Text(stringResource(R.string.save)) }
-                    TextButton({ state.editing = false; state.wantKeyboard = false }) { Text(stringResource(R.string.done)) }
-                }
-                var menu by remember { mutableStateOf(false) }
-                TextButton({ menu = true }) { Text("⋮") }
-                DropdownMenu(menu, { menu = false }) {
-                    DropdownMenuItem({ Text(stringResource(R.string.save)) }, { menu = false; actions.onSave() })
-                    DropdownMenuItem({ Text(stringResource(R.string.save_as)) }, { menu = false; actions.onSaveAs() })
-                    actions.onOverwrite?.let { ow ->
-                        DropdownMenuItem({ Text(stringResource(R.string.overwrite_original)) }, { menu = false; ow() })
-                    }
-                    HorizontalDivider()
-                    DropdownMenuItem({ Text(stringResource(R.string.print)) }, { menu = false; actions.onPrint() })
-                    DropdownMenuItem({ Text(stringResource(R.string.export_pdf)) }, { menu = false; actions.onExportPdf() })
-                    DropdownMenuItem({ Text(stringResource(R.string.share_docx)) }, { menu = false; actions.onShareDoc() })
-                }
-            },
-        )
+        TopBar(title, state, actions)
         Box(Modifier.weight(1f)) {
             DocumentView(state)
             AndroidView(
@@ -220,7 +209,10 @@ fun ViewerScreen(
             )
             state.tick
             FastScroller(state, Modifier.align(Alignment.CenterEnd))
-            if (state.editing) SelectionToolbar(state)
+            if (state.editing) {
+                SelectionToolbar(state)
+                GraphicToolbar(state)
+            }
             ZoomIndicator(state, Modifier.align(Alignment.TopCenter).padding(top = 12.dp))
             if (!state.editing) {
                 Surface(
@@ -242,7 +234,84 @@ fun ViewerScreen(
             }
             if (busy) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         }
-        if (state.editing) Ribbon(state, actions.onPickImage)
+        if (state.editing) Ribbon(state, actions.onPickImage, actions.onPageSetup)
+    }
+}
+
+/** Compact app bar: back, title with save state, undo/redo/save/done while editing, overflow menu. */
+@Composable
+private fun TopBar(title: String, state: DocumentViewState, actions: ViewerActions) {
+    val f = state.format
+    Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
+        Row(
+            Modifier.fillMaxWidth().statusBarsPadding().height(60.dp).padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BarButton(actions.onBack) { Text("←", fontSize = 22.sp) }
+            Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
+                Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+                Text(
+                    if (state.dirty) stringResource(R.string.unsaved_changes_short) else stringResource(R.string.saved),
+                    fontSize = 12.sp,
+                    color = if (state.dirty) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+            if (state.editing) {
+                BarButton({ state.uno(".uno:Undo") }, enabled = f[".uno:Undo"] != "disabled") { Text("↶", fontSize = 21.sp) }
+                BarButton({ state.uno(".uno:Redo") }, enabled = f[".uno:Redo"] != "disabled") { Text("↷", fontSize = 21.sp) }
+                BarButton(actions.onSave) { SaveIcon() }
+                BarButton({ state.editing = false; state.wantKeyboard = false }) {
+                    Text("✓", fontSize = 22.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                }
+            } else {
+                BarButton({ state.editing = true }) { Text("✎", fontSize = 20.sp, color = MaterialTheme.colorScheme.primary) }
+            }
+            var menu by remember { mutableStateOf(false) }
+            Box {
+                BarButton({ menu = true }) { MoreIcon() }
+                DropdownMenu(menu, { menu = false }) {
+                    DropdownMenuItem({ Text(stringResource(R.string.save)) }, { menu = false; actions.onSave() })
+                    DropdownMenuItem({ Text(stringResource(R.string.save_as)) }, { menu = false; actions.onSaveAs() })
+                    actions.onOverwrite?.let { ow ->
+                        DropdownMenuItem({ Text(stringResource(R.string.overwrite_original)) }, { menu = false; ow() })
+                    }
+                    HorizontalDivider()
+                    DropdownMenuItem({ Text(stringResource(R.string.share_export)) }, { menu = false; actions.onShare() })
+                    DropdownMenuItem({ Text(stringResource(R.string.print)) }, { menu = false; actions.onPrint() })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BarButton(onClick: () -> Unit, enabled: Boolean = true, content: @Composable () -> Unit) {
+    Box(
+        Modifier.size(44.dp).clip(CircleShape).clickable(enabled = enabled, onClick = onClick)
+            .then(if (enabled) Modifier else Modifier.alpha(0.35f)),
+        contentAlignment = Alignment.Center,
+    ) { content() }
+}
+
+@Composable
+private fun SaveIcon() {
+    val c = MaterialTheme.colorScheme.onSurface
+    androidx.compose.foundation.Canvas(Modifier.size(22.dp)) {
+        val w = size.width; val sw = 1.8.dp.toPx()
+        drawRoundRect(c, Offset(sw / 2, sw / 2), androidx.compose.ui.geometry.Size(w - sw, w - sw),
+            androidx.compose.ui.geometry.CornerRadius(3.dp.toPx()), style = androidx.compose.ui.graphics.drawscope.Stroke(sw))
+        drawRect(c, Offset(w * 0.28f, w * 0.1f), androidx.compose.ui.geometry.Size(w * 0.44f, w * 0.28f))
+        drawRoundRect(c, Offset(w * 0.24f, w * 0.55f), androidx.compose.ui.geometry.Size(w * 0.52f, w * 0.3f),
+            androidx.compose.ui.geometry.CornerRadius(1.5.dp.toPx()), style = androidx.compose.ui.graphics.drawscope.Stroke(sw))
+    }
+}
+
+@Composable
+private fun MoreIcon() {
+    val c = MaterialTheme.colorScheme.onSurface
+    androidx.compose.foundation.Canvas(Modifier.size(22.dp)) {
+        for (i in 0..2) drawCircle(c, 2.2.dp.toPx(), Offset(size.width / 2, size.height * (0.2f + i * 0.3f)))
     }
 }
 
@@ -252,7 +321,7 @@ private fun SelectionToolbar(state: DocumentViewState) {
     if (state.selection.isEmpty() || state.graphic != null) return
     val anchor: Offset = state.selectionAnchor() ?: return
     val density = LocalDensity.current
-    val barW = 330.dp
+    val barW = 360.dp
     val barH = 44.dp
     val viewW = state.viewSize.width
     with(density) {
@@ -284,6 +353,41 @@ private fun SelectionToolbar(state: DocumentViewState) {
                             softWrap = false,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Floating bar over the selected image/shape (long press or tap): quick actions, "more" opens the Picture tab. */
+@Composable
+private fun GraphicToolbar(state: DocumentViewState) {
+    val anchor = state.graphicAnchor() ?: return
+    val density = LocalDensity.current
+    val barW = 360.dp
+    val barH = 44.dp
+    with(density) {
+        val x = (anchor.x - barW.toPx() / 2f).roundToInt()
+            .coerceIn(8.dp.roundToPx(), max(8.dp.roundToPx(), state.viewSize.width - barW.roundToPx() - 8.dp.roundToPx()))
+        val above = anchor.y - barH.toPx() - 16.dp.toPx()
+        val y = if (above > 4.dp.toPx()) above else state.graphicBottom() + 16.dp.toPx()
+        Surface(
+            Modifier.offset { IntOffset(x, y.roundToInt()) }.width(barW).height(barH),
+            shape = RoundedCornerShape(10.dp),
+            shadowElevation = 6.dp,
+            color = MaterialTheme.colorScheme.surfaceVariant,
+        ) {
+            Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                listOf(
+                    R.string.cut to { state.uno(".uno:Cut") },
+                    R.string.copy to { state.uno(".uno:Copy") },
+                    R.string.rotate to { state.uno(".uno:RotateRight") },
+                    R.string.delete to { state.uno(".uno:Delete") },
+                    R.string.more to { state.ribbonTabRequest = TAB_PICTURE },
+                ).forEach { (label, act) ->
+                    Box(Modifier.weight(1f).fillMaxSize().clickable { act() }, contentAlignment = Alignment.Center) {
+                        Text(stringResource(label), fontSize = 12.sp, maxLines = 1, softWrap = false, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -355,4 +459,57 @@ private fun FastScroller(state: DocumentViewState, modifier: Modifier) {
                 .background(MaterialTheme.colorScheme.primary.copy(alpha = if (dragging) 0.95f else 0.6f)),
         )
     }
+}
+
+/** Pick the export format, then share via the system sheet or attach it to a new e-mail. */
+@Composable
+fun ShareDialog(onDismiss: () -> Unit, onShare: (format: String, email: Boolean) -> Unit) {
+    var fmt by remember { mutableStateOf("docx") }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.share_export)) },
+        text = {
+            Column {
+                listOf("docx" to R.string.fmt_docx, "odt" to R.string.fmt_odt, "pdf" to R.string.fmt_pdf).forEach { (k, label) ->
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { fmt = k }.padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        androidx.compose.material3.RadioButton(selected = fmt == k, onClick = { fmt = k })
+                        Text(stringResource(label))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Row {
+                TextButton({ onDismiss(); onShare(fmt, true) }) { Text(stringResource(R.string.share_email)) }
+                TextButton({ onDismiss(); onShare(fmt, false) }) { Text(stringResource(R.string.share_system)) }
+            }
+        },
+        dismissButton = { TextButton(onDismiss) { Text(stringResource(R.string.cancel)) } },
+    )
+}
+
+/** First save of a new document: choose the file name (stored in Documents/MatNotes). */
+@Composable
+fun NameDialog(initial: String, onDismiss: () -> Unit, onOk: (String) -> Unit) {
+    var name by remember { mutableStateOf(initial) }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.save_document_title)) },
+        text = {
+            Column {
+                androidx.compose.material3.OutlinedTextField(name, { name = it }, singleLine = true, label = { Text(stringResource(R.string.file_name)) })
+                Text(
+                    stringResource(R.string.saved_in_folder),
+                    Modifier.padding(top = 8.dp),
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = { TextButton({ onDismiss(); onOk(name.trim().ifEmpty { initial }) }) { Text(stringResource(R.string.save)) } },
+        dismissButton = { TextButton(onDismiss) { Text(stringResource(R.string.cancel)) } },
+    )
 }

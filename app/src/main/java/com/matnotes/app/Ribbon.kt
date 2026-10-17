@@ -28,6 +28,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -111,18 +112,21 @@ private const val TAB_LAYOUT = 2
 private const val TAB_REFS = 3
 private const val TAB_REVIEW = 4
 private const val TAB_VIEW = 5
-private const val TAB_PICTURE = 6
+internal const val TAB_PICTURE = 6
 
 private val RowH = 36.dp
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-fun Ribbon(state: DocumentViewState, onPickImage: () -> Unit) {
+fun Ribbon(state: DocumentViewState, onPickImage: () -> Unit, onPageSetup: (PageSetupChange) -> Unit) {
     var tab by remember { mutableIntStateOf(TAB_START) }
     var collapsed by remember { mutableStateOf(false) }
     // Landscape phone with the keyboard up leaves almost no room: show only the tab strip.
     val cramped = LocalConfiguration.current.screenHeightDp < 500 && WindowInsets.isImeVisible
     val hasGraphic = state.graphic != null
+    LaunchedEffect(state.ribbonTabRequest) {
+        if (state.ribbonTabRequest >= 0) { tab = state.ribbonTabRequest; collapsed = false; state.ribbonTabRequest = -1 }
+    }
     LaunchedEffect(hasGraphic) {
         if (hasGraphic) { tab = TAB_PICTURE; collapsed = false } else if (tab == TAB_PICTURE) tab = TAB_START
     }
@@ -136,10 +140,18 @@ fun Ribbon(state: DocumentViewState, onPickImage: () -> Unit) {
             HorizontalDivider()
             if (state.finding) FindBar(state)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp)) {
-                    tabs.forEach { (id, label) ->
-                        TabLabel(stringResource(label), tab == id) { tab = id; collapsed = false }
+                Box(Modifier.weight(1f)) {
+                    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp)) {
+                        tabs.forEach { (id, label) ->
+                            TabLabel(stringResource(label), tab == id) { tab = id; collapsed = false }
+                        }
                     }
+                    // fade at the right edge: shows that more tabs can be scrolled into view
+                    val bg = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
+                    Box(
+                        Modifier.align(Alignment.CenterEnd).width(28.dp).height(40.dp)
+                            .background(androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(Color.Transparent, bg))),
+                    )
                 }
                 Text(
                     "⌨",
@@ -165,7 +177,7 @@ fun Ribbon(state: DocumentViewState, onPickImage: () -> Unit) {
                     when (tab) {
                         TAB_START -> StartTab(state)
                         TAB_INSERT -> InsertTab(state, onPickImage)
-                        TAB_LAYOUT -> LayoutTab(state)
+                        TAB_LAYOUT -> LayoutTab(state, onPageSetup)
                         TAB_REFS -> RefsTab(state)
                         TAB_REVIEW -> ReviewTab(state)
                         TAB_VIEW -> ViewTab(state)
@@ -308,7 +320,30 @@ private fun InsertTab(state: DocumentViewState, onPickImage: () -> Unit) {
 }
 
 @Composable
-private fun LayoutTab(state: DocumentViewState) {
+private fun LayoutTab(state: DocumentViewState, onPageSetup: (PageSetupChange) -> Unit) {
+    var marginsDialog by remember { mutableStateOf(false) }
+    if (marginsDialog) MarginsDialog({ marginsDialog = false }) { onPageSetup(PageSetupChange(margins = it)) }
+    Group(stringResource(R.string.g_page_setup)) {
+        MenuBigBtn(stringResource(R.string.margins), { Ic(26.dp) { marginsIcon(it) } }) { close ->
+            @Composable fun m(top: Double, side: Double, label: Int) = DropdownMenuItem({ Text(stringResource(label)) }, {
+                close()
+                onPageSetup(PageSetupChange(margins = intArrayOf(PageSetup.cm(top), PageSetup.cm(side), PageSetup.cm(top), PageSetup.cm(side))))
+            })
+            m(2.54, 2.54, R.string.margins_normal)
+            m(1.27, 1.27, R.string.margins_narrow)
+            m(2.54, 1.91, R.string.margins_moderate)
+            m(2.54, 5.08, R.string.margins_wide)
+            DropdownMenuItem({ Text(stringResource(R.string.margins_custom)) }, { close(); marginsDialog = true })
+        }
+        MenuBigBtn(stringResource(R.string.orientation), { Ic(26.dp) { orientationIcon(it) } }) { close ->
+            DropdownMenuItem({ Text(stringResource(R.string.portrait)) }, { close(); onPageSetup(PageSetupChange(landscape = false)) })
+            DropdownMenuItem({ Text(stringResource(R.string.landscape)) }, { close(); onPageSetup(PageSetupChange(landscape = true)) })
+        }
+        MenuBigBtn(stringResource(R.string.page_size), { Ic(26.dp) { pageBreakIcon(it) } }) { close ->
+            listOf("A3" to PageSizes.A3, "A4" to PageSizes.A4, "A5" to PageSizes.A5, "B5" to PageSizes.B5, "Letter" to PageSizes.Letter, "Legal" to PageSizes.Legal)
+                .forEach { (n, sz) -> DropdownMenuItem({ Text(n) }, { close(); onPageSetup(PageSetupChange(size = sz)) }) }
+        }
+    }
     Group(stringResource(R.string.g_indent_spacing)) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -380,9 +415,27 @@ private fun PictureTab(state: DocumentViewState) {
             BigBtn(stringResource(label), width = 72.dp, onClick = { state.uno(cmd) }) { Ic(26.dp) { wrapIcon(it, kind) } }
         }
     }
-    Group(stringResource(R.string.g_arrange), last = true) {
+    Group(stringResource(R.string.g_arrange)) {
         BigBtn(stringResource(R.string.bring_front), width = 72.dp, onClick = { state.uno(".uno:BringToFront") }) { Glyph("⬒", 22) }
         BigBtn(stringResource(R.string.send_back), width = 72.dp, onClick = { state.uno(".uno:SendToBack") }) { Glyph("⬓", 22) }
+        Column {
+            Row {
+                IconBtn(onClick = { state.uno(".uno:RotateLeft") }) { Glyph("↺", 20) }
+                IconBtn(onClick = { state.uno(".uno:RotateRight") }) { Glyph("↻", 20) }
+            }
+            Row {
+                IconBtn(onClick = { state.uno(".uno:FlipHorizontal") }) { Glyph("⇋", 20) }
+                IconBtn(onClick = { state.uno(".uno:FlipVertical") }) { Glyph("⇅", 20) }
+            }
+        }
+    }
+    Group(stringResource(R.string.g_anchor)) {
+        BigBtn(stringResource(R.string.anchor_para), width = 72.dp, onClick = { state.uno(".uno:SetAnchorToPara") }) { Glyph("⚓", 20) }
+        BigBtn(stringResource(R.string.anchor_page), width = 72.dp, onClick = { state.uno(".uno:SetAnchorToPage") }) { Glyph("▭", 22) }
+    }
+    Group(stringResource(R.string.g_edit_picture), last = true) {
+        BigBtn(stringResource(R.string.cut), onClick = { state.uno(".uno:Cut") }) { Glyph("✂", 20) }
+        BigBtn(stringResource(R.string.copy), onClick = { state.uno(".uno:Copy") }) { Ic(26.dp) { copyIcon(it) } }
         BigBtn(stringResource(R.string.delete), onClick = { state.uno(".uno:Delete") }) { Glyph("🗑", 20) }
     }
 }
@@ -680,6 +733,49 @@ private fun StyleCard(label: String, style: String, onClick: () -> Unit) {
     }
 }
 
+/** Big ribbon button that opens a dropdown menu. */
+@Composable
+private fun MenuBigBtn(label: String, icon: @Composable () -> Unit, items: @Composable (close: () -> Unit) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        BigBtn(label, onClick = { open = true }, icon = icon)
+        DropdownMenu(open, { open = false }, modifier = Modifier.heightIn(max = 360.dp)) { items { open = false } }
+    }
+}
+
+@Composable
+private fun MarginsDialog(onDismiss: () -> Unit, onOk: (IntArray) -> Unit) {
+    var top by remember { mutableStateOf("2,54") }
+    var bottom by remember { mutableStateOf("2,54") }
+    var left by remember { mutableStateOf("2,54") }
+    var right by remember { mutableStateOf("2,54") }
+    fun v(t: String) = t.replace(',', '.').toDoubleOrNull()?.coerceIn(0.0, 20.0) ?: 2.54
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.margins_custom)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    androidx.compose.material3.OutlinedTextField(top, { top = it }, label = { Text(stringResource(R.string.margin_top)) }, singleLine = true, modifier = Modifier.weight(1f))
+                    androidx.compose.material3.OutlinedTextField(bottom, { bottom = it }, label = { Text(stringResource(R.string.margin_bottom)) }, singleLine = true, modifier = Modifier.weight(1f))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    androidx.compose.material3.OutlinedTextField(left, { left = it }, label = { Text(stringResource(R.string.margin_left)) }, singleLine = true, modifier = Modifier.weight(1f))
+                    androidx.compose.material3.OutlinedTextField(right, { right = it }, label = { Text(stringResource(R.string.margin_right)) }, singleLine = true, modifier = Modifier.weight(1f))
+                }
+                Text(stringResource(R.string.unit_cm), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton({
+                onDismiss()
+                onOk(intArrayOf(PageSetup.cm(v(top)), PageSetup.cm(v(right)), PageSetup.cm(v(bottom)), PageSetup.cm(v(left))))
+            }) { Text(stringResource(R.string.insert_ok)) }
+        },
+        dismissButton = { androidx.compose.material3.TextButton(onDismiss) { Text(stringResource(R.string.cancel)) } },
+    )
+}
+
 // ---------------------------------------------------------------- icons
 
 @Composable
@@ -817,4 +913,16 @@ private fun DrawScope.wrapIcon(c: Color, kind: Int) {
     }
     val fill = when (kind) { 4 -> c; 5 -> c.copy(alpha = 0.25f); else -> c }
     drawRect(fill, Offset(bx, by), block)
+}
+
+private fun DrawScope.marginsIcon(c: Color) {
+    val w = size.width; val h = size.height; val sw = 1.6f * density
+    drawRoundRect(c, Offset(w * 0.12f, h * 0.06f), Size(w * 0.76f, h * 0.88f), CornerRadius(2f * density), style = Stroke(sw))
+    drawRect(c.copy(alpha = 0.45f), Offset(w * 0.28f, h * 0.22f), Size(w * 0.44f, h * 0.56f), style = Stroke(sw))
+}
+
+private fun DrawScope.orientationIcon(c: Color) {
+    val w = size.width; val h = size.height; val sw = 1.6f * density
+    drawRoundRect(c, Offset(w * 0.2f, h * 0.04f), Size(w * 0.36f, h * 0.6f), CornerRadius(2f * density), style = Stroke(sw))
+    drawRoundRect(c, Offset(w * 0.34f, h * 0.5f), Size(w * 0.6f, h * 0.38f), CornerRadius(2f * density), style = Stroke(sw))
 }
