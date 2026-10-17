@@ -252,7 +252,7 @@ private fun SelectionToolbar(state: DocumentViewState) {
     if (state.selection.isEmpty() || state.graphic != null) return
     val anchor: Offset = state.selectionAnchor() ?: return
     val density = LocalDensity.current
-    val barW = 300.dp
+    val barW = 330.dp
     val barH = 44.dp
     val viewW = state.viewSize.width
     with(density) {
@@ -271,15 +271,20 @@ private fun SelectionToolbar(state: DocumentViewState) {
                     R.string.cut to ".uno:Cut",
                     R.string.copy to ".uno:Copy",
                     R.string.paste to ".uno:Paste",
-                    R.string.select_all to ".uno:SelectAll",
+                    R.string.select_all_short to ".uno:SelectAll",
                 ).forEach { (label, cmd) ->
-                    Text(
-                        stringResource(label),
-                        Modifier.weight(1f).fillMaxSize().clickable { state.uno(cmd) }.padding(top = 12.dp),
-                        fontSize = 13.sp,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Box(
+                        Modifier.weight(1f).fillMaxSize().clickable { state.uno(cmd) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            stringResource(label),
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }
