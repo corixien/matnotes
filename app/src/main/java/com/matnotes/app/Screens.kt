@@ -262,16 +262,11 @@ private fun TopBar(title: String, state: DocumentViewState, actions: ViewerActio
                 BarButton({ state.uno(".uno:Redo") }, enabled = f[".uno:Redo"] != "disabled") { Text("↷", fontSize = 21.sp) }
                 BarButton(actions.onSave) { SaveIcon() }
                 BarButton({ state.editing = false; state.wantKeyboard = false }) {
-                    Text("✓", fontSize = 22.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    CheckIcon(MaterialTheme.colorScheme.primary)
                 }
             } else {
                 BarButton(actions.onSave) { SaveIcon() }
-                // filled round button with a drawn pencil
-                Box(
-                    Modifier.padding(horizontal = 4.dp).size(40.dp).clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary).clickable { state.editing = true },
-                    contentAlignment = Alignment.Center,
-                ) { PencilIcon(MaterialTheme.colorScheme.onPrimary) }
+                BarButton({ state.editing = true }) { PencilIcon(MaterialTheme.colorScheme.primary) }
             }
             var menu by remember { mutableStateOf(false) }
             Box {
@@ -302,18 +297,31 @@ private fun BarButton(onClick: () -> Unit, enabled: Boolean = true, content: @Co
 
 @Composable
 private fun PencilIcon(color: Color) {
-    androidx.compose.foundation.Canvas(Modifier.size(20.dp)) {
+    androidx.compose.foundation.Canvas(Modifier.size(22.dp)) {
         val w = size.width
-        // pencil pointing to the lower left: body, tip, eraser end
+        val st = androidx.compose.ui.graphics.drawscope.Stroke(
+            1.8.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round,
+        )
+        // outlined pencil pointing to the lower left
         val body = androidx.compose.ui.graphics.Path().apply {
-            moveTo(w * 0.72f, w * 0.08f); lineTo(w * 0.92f, w * 0.28f); lineTo(w * 0.34f, w * 0.86f); lineTo(w * 0.14f, w * 0.66f); close()
+            moveTo(w * 0.70f, w * 0.12f); lineTo(w * 0.88f, w * 0.30f); lineTo(w * 0.34f, w * 0.84f)
+            lineTo(w * 0.10f, w * 0.90f); lineTo(w * 0.16f, w * 0.66f); close()
         }
-        drawPath(body, color)
-        val tip = androidx.compose.ui.graphics.Path().apply {
-            moveTo(w * 0.12f, w * 0.7f); lineTo(w * 0.30f, w * 0.88f); lineTo(w * 0.05f, w * 0.95f); close()
+        drawPath(body, color, style = st)
+        drawLine(color, Offset(w * 0.58f, w * 0.24f), Offset(w * 0.76f, w * 0.42f), strokeWidth = st.width, cap = st.cap)
+    }
+}
+
+@Composable
+private fun CheckIcon(color: Color) {
+    androidx.compose.foundation.Canvas(Modifier.size(22.dp)) {
+        val w = size.width
+        val p = androidx.compose.ui.graphics.Path().apply {
+            moveTo(w * 0.16f, w * 0.54f); lineTo(w * 0.40f, w * 0.78f); lineTo(w * 0.86f, w * 0.24f)
         }
-        drawPath(tip, color)
-        drawLine(color.copy(alpha = 0.55f), Offset(w * 0.2f, w * 0.78f), Offset(w * 0.22f, w * 0.8f), strokeWidth = 1f)
+        drawPath(p, color, style = androidx.compose.ui.graphics.drawscope.Stroke(
+            1.8.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round,
+        ))
     }
 }
 

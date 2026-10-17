@@ -271,9 +271,16 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
      * LibreOffice inserts a new shape centred on the page's top-left corner. Insert, then move it to the middle of
      * what the user currently sees (kept inside the page).
      */
+    /** Inserting a picture/shape needs no typing: drop the keyboard. */
+    fun hideKeyboardNow() {
+        wantKeyboard = false
+        focusTick++
+    }
+
     fun insertShape(cmd: String) {
         pendingShapeMove = true
         enterTextAfterMove = cmd == ".uno:DrawText"
+        if (!enterTextAfterMove) hideKeyboardNow()
         uno(cmd)
     }
 
@@ -489,9 +496,16 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
                 edit { setGraphicSelection(Document.SET_GRAPHIC_SELECTION_END, pt.x.roundToInt(), pt.y.roundToInt(), s) }
             }
             Drag.GraphicHandle -> {
+                val pv = preview
                 preview = null
                 val s = scale
-                val pt = dragHandleTw + delta
+                // corners: end exactly at the aspect-preserving corner shown in the preview, not at the finger
+                val pt = if (pv != null && dragHandleIdx in listOf(0, 2, 5, 7)) {
+                    Offset(
+                        if (dragHandleIdx == 0 || dragHandleIdx == 5) pv.left else pv.right,
+                        if (dragHandleIdx == 0 || dragHandleIdx == 2) pv.top else pv.bottom,
+                    )
+                } else dragHandleTw + delta
                 edit { setGraphicSelection(Document.SET_GRAPHIC_SELECTION_END, pt.x.roundToInt(), pt.y.roundToInt(), s) }
             }
             else -> Unit

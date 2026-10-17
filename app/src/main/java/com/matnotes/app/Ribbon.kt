@@ -307,12 +307,23 @@ private fun InsertTab(state: DocumentViewState, onPickImage: () -> Unit) {
         BigBtn(stringResource(R.string.insert_picture), onClick = onPickImage) { Ic(26.dp) { imageIcon(it) } }
         MenuBigBtn(stringResource(R.string.shapes), { Ic(26.dp) { shapesIcon(it) } }) { close ->
             ShapeGroups.forEach { (title, items) ->
-                DropdownMenuItem(
-                    { Text(stringResource(title), fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) },
-                    {}, enabled = false,
+                Text(
+                    stringResource(title), fontSize = 11.sp, color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 14.dp, top = 8.dp, bottom = 2.dp),
                 )
-                items.forEach { (label, cmd) ->
-                    DropdownMenuItem({ Text(stringResource(label)) }, { close(); state.insertShape(cmd) })
+                items.chunked(5).forEach { row ->
+                    Row(Modifier.padding(horizontal = 8.dp)) {
+                        row.forEach { (_, cmd) ->
+                            Box(
+                                Modifier.size(46.dp).clip(RoundedCornerShape(6.dp)).clickable { close(); state.insertShape(cmd) },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                val fill = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+                                val line = MaterialTheme.colorScheme.primary
+                                Canvas(Modifier.size(34.dp)) { drawShapeThumb(cmd, fill, line) }
+                            }
+                        }
+                    }
                 }
             }
         }

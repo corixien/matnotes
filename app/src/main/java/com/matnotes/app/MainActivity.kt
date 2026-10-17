@@ -361,6 +361,7 @@ class MainActivity : ComponentActivity() {
 
     private fun insertImage(uri: Uri) {
         val c = current ?: return
+        c.state.hideKeyboardNow()
         lifecycleScope.launch {
             val f = withContext(Dispatchers.IO) {
                 val dir = File(cacheDir, "open/img").apply { mkdirs() }
