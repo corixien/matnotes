@@ -3,8 +3,13 @@ package com.matnotes.app
 import android.app.Activity
 import android.content.res.AssetManager
 import android.graphics.Bitmap
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.libreoffice.kit.Document
 import org.libreoffice.kit.LibreOfficeKit
@@ -21,6 +26,7 @@ object Engine {
     private const val TAG = "MatNotesEngine"
     val dispatcher = Executors.newSingleThreadExecutor { r -> Thread(null, r, "lo-engine", 32L shl 20) }
         .asCoroutineDispatcher()
+    val scope = CoroutineScope(dispatcher + SupervisorJob())
     private var office: Office? = null
 
     private fun ensureInit(activity: Activity) {
@@ -62,19 +68,48 @@ object Engine {
     }
 }
 
-/** A loaded document. All methods must be called on [Engine.dispatcher]. */
-class LoDocument(private val doc: Document, val file: File) {
-    val width: Int
-    val height: Int
-    val pages: List<PageRect>
+/** Document size and page rectangles in twips. */
+data class Layout(val width: Int, val height: Int, val pages: List<PageRect>)
 
+/** A loaded document. Native calls run on [Engine.dispatcher]; [post] is the safe entry point. */
+class LoDocument(private val doc: Document, val file: File) {
+    @Volatile var layout: Layout
+        private set
+
+    /** Receives LibreOfficeKit callbacks on the main thread. */
+    var onMessage: ((type: Int, payload: String) -> Unit)? = null
+
+    private val main = Handler(Looper.getMainLooper())
     private val tileBuffer: ByteBuffer = ByteBuffer.allocateDirect(MAX_TILE * MAX_TILE * 4)
 
     init {
         doc.initializeForRendering()
-        width = doc.documentWidth.toInt()
-        height = doc.documentHeight.toInt()
-        pages = parsePages(doc.partPageRectangles) ?: listOf(PageRect(0, 0, width, height))
+        layout = readLayout()
+        doc.setMessageCallback { type, payload ->
+            if (type == Document.CALLBACK_DOCUMENT_SIZE_CHANGED) {
+                Engine.scope.launch { layout = readLayout(); deliver(type, payload) }
+            } else {
+                deliver(type, payload)
+            }
+        }
+    }
+
+    private fun deliver(type: Int, payload: String) {
+        main.post { onMessage?.invoke(type, payload) }
+    }
+
+    /** Re-reads document size and pages (engine thread). LibreOfficeKit does not always send size callbacks. */
+    fun refreshLayout() { layout = readLayout() }
+
+    private fun readLayout(): Layout {
+        val w = doc.documentWidth.toInt()
+        val h = doc.documentHeight.toInt()
+        return Layout(w, h, parsePages(doc.partPageRectangles) ?: listOf(PageRect(0, 0, w, h)))
+    }
+
+    /** Runs [block] on the engine thread, in call order. */
+    fun post(block: LoDocument.() -> Unit) {
+        Engine.scope.launch { block() }
     }
 
     fun paintTile(page: PageRect, xTw: Int, yTw: Int, wTw: Int, hTw: Int, wPx: Int, hPx: Int): Bitmap {
@@ -86,6 +121,43 @@ class LoDocument(private val doc: Document, val file: File) {
         bmp.copyPixelsFromBuffer(buf)
         return bmp
     }
+
+    // --- editing (engine thread) ---
+
+    fun mouse(type: Int, xTw: Int, yTw: Int, count: Int, pxPerTwip: Float) {
+        val tile = (256 / pxPerTwip).toInt().coerceAtLeast(1)
+        doc.setClientZoom(256, 256, tile, tile)
+        doc.postMouseEvent(type, xTw, yTw, count, Document.MOUSE_BUTTON_LEFT, Document.KEYBOARD_MODIFIER_NONE)
+    }
+
+    fun key(type: Int, charCode: Int, keyCode: Int) = doc.postKeyEvent(type, charCode, keyCode)
+
+    fun type(text: String) {
+        var i = 0
+        while (i < text.length) {
+            val cp = text.codePointAt(i)
+            i += Character.charCount(cp)
+            if (cp == '\n'.code) {
+                pressKey(Keys.RETURN)
+            } else {
+                doc.postKeyEvent(Document.KEY_EVENT_PRESS, cp, 0)
+                doc.postKeyEvent(Document.KEY_EVENT_RELEASE, cp, 0)
+            }
+        }
+    }
+
+    fun pressKey(awtKey: Int) {
+        doc.postKeyEvent(Document.KEY_EVENT_PRESS, 0, awtKey)
+        doc.postKeyEvent(Document.KEY_EVENT_RELEASE, 0, awtKey)
+    }
+
+    fun uno(command: String, args: String = "") = doc.postUnoCommand(command, args.ifEmpty { null }, false)
+
+    fun setTextSelection(type: Int, xTw: Int, yTw: Int) = doc.setTextSelection(type, xTw, yTw)
+
+    fun setGraphicSelection(type: Int, xTw: Int, yTw: Int) = doc.setGraphicSelection(type, xTw, yTw)
+
+    fun selectedText(): String? = doc.getTextSelection("text/plain;charset=utf-8")
 
     /** Exports to [out] in the LibreOffice filter [format] (e.g. "pdf", "docx"). */
     fun saveAs(out: File, format: String): Boolean {
@@ -109,4 +181,20 @@ class LoDocument(private val doc: Document, val file: File) {
     companion object {
         const val MAX_TILE = 1024
     }
+}
+
+/** com.sun.star.awt.Key codes used by LibreOfficeKit. */
+object Keys {
+    const val DOWN = 1024
+    const val UP = 1025
+    const val LEFT = 1026
+    const val RIGHT = 1027
+    const val HOME = 1028
+    const val END = 1029
+    const val PAGEUP = 1030
+    const val PAGEDOWN = 1031
+    const val RETURN = 1280
+    const val TAB = 1282
+    const val BACKSPACE = 1283
+    const val DELETE = 1286
 }

@@ -11,6 +11,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -33,6 +38,16 @@ class MainActivity : ComponentActivity() {
     private var busy by mutableStateOf(false)
     private var error by mutableStateOf<String?>(null)
     private var recentList by mutableStateOf<List<RecentFile>>(emptyList())
+    private var saveUri by mutableStateOf<Uri?>(null)
+    private var closeAfterSave = false
+    private var confirmClose by mutableStateOf(false)
+
+    private val createDoc = registerForActivityResult(ActivityResultContracts.CreateDocument(DOCX_MIME)) { uri ->
+        if (uri != null) { saveUri = uri; doSave() } else closeAfterSave = false
+    }
+    private val pickImage = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) insertImage(uri)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,17 +67,37 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 val cur = current
-                BackHandler(enabled = cur != null) { closeDocument() }
+                BackHandler(enabled = cur != null) {
+                    if (cur?.state?.editing == true && cur.state.wantKeyboard) cur.state.wantKeyboard = false
+                    else requestClose()
+                }
+                if (confirmClose) {
+                    AlertDialog(
+                        onDismissRequest = { confirmClose = false },
+                        title = { Text(stringResource(R.string.unsaved_title)) },
+                        text = { Text(stringResource(R.string.unsaved_msg)) },
+                        confirmButton = {
+                            TextButton({ confirmClose = false; closeAfterSave = true; save() }) { Text(stringResource(R.string.save)) }
+                        },
+                        dismissButton = {
+                            Row {
+                                TextButton({ confirmClose = false }) { Text(stringResource(R.string.cancel)) }
+                                TextButton({ confirmClose = false; closeDocument() }) { Text(stringResource(R.string.discard)) }
+                            }
+                        },
+                    )
+                }
                 when {
                     loading -> LoadingScreen()
                     cur != null -> ViewerScreen(
                         title = cur.title,
                         state = cur.state,
-                        pageCount = cur.doc.pages.size,
                         busy = busy,
-                        onBack = ::closeDocument,
+                        onBack = ::requestClose,
                         onExportPdf = { export("pdf", "application/pdf") },
                         onShareDoc = { export("docx", DOCX_MIME) },
+                        onSave = ::save,
+                        onPickImage = { pickImage.launch("image/*") },
                     )
                     else -> HomeScreen(
                         recents = recentList,
@@ -105,7 +140,8 @@ class MainActivity : ComponentActivity() {
                     error = getString(R.string.open_failed)
                 } else {
                     current?.let { closeDocument() }
-                    current = OpenDoc(doc, name, DocumentViewState(doc, lifecycleScope))
+                    saveUri = null
+                    current = OpenDoc(doc, name, DocumentViewState(doc, lifecycleScope, resources.displayMetrics.density))
                     recents.add(uri.toString(), name)
                     recentList = recents.list()
                 }
@@ -120,9 +156,77 @@ class MainActivity : ComponentActivity() {
 
     private fun closeDocument() {
         val c = current ?: return
+        c.state.editing = false
         current = null
         lifecycleScope.launch(Engine.dispatcher) { c.doc.close() }
         recentList = recents.list()
+    }
+
+    private fun requestClose() {
+        val c = current ?: return
+        if (c.state.dirty) confirmClose = true else closeDocument()
+    }
+
+    /** First save asks for a target (a new copy); the original is never overwritten implicitly. */
+    private fun save() {
+        val c = current ?: return
+        if (saveUri == null) {
+            createDoc.launch(c.title.substringBeforeLast('.') + " (MatNotes).docx")
+        } else {
+            doSave()
+        }
+    }
+
+    private fun doSave() {
+        val c = current ?: return
+        val target = saveUri ?: return
+        busy = true
+        lifecycleScope.launch {
+            val ok = try {
+                val tmp = withContext(Engine.dispatcher) {
+                    val f = File(File(cacheDir, "share").apply { mkdirs() }, "save.docx")
+                    if (c.doc.saveAs(f, "docx")) f else null
+                }
+                if (tmp == null) false else withContext(Dispatchers.IO) {
+                    contentResolver.openOutputStream(target, "wt")!!.use { o -> tmp.inputStream().use { it.copyTo(o) } }
+                    true
+                }
+            } catch (e: Throwable) {
+                Log.e(TAG, "save failed", e)
+                false
+            }
+            busy = false
+            if (ok) {
+                c.state.dirty = false
+                android.widget.Toast.makeText(this@MainActivity, R.string.saved, android.widget.Toast.LENGTH_SHORT).show()
+                if (closeAfterSave) { closeAfterSave = false; closeDocument() }
+            } else {
+                closeAfterSave = false
+                android.widget.Toast.makeText(this@MainActivity, R.string.save_failed, android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun insertImage(uri: Uri) {
+        val c = current ?: return
+        lifecycleScope.launch {
+            val f = withContext(Dispatchers.IO) {
+                val dir = File(cacheDir, "open/img").apply { mkdirs() }
+                val out = File(dir, "img_${System.currentTimeMillis()}.${imageExt(uri)}")
+                contentResolver.openInputStream(uri)!!.use { i -> out.outputStream().use { o -> i.copyTo(o) } }
+                out
+            }
+            c.state.uno(
+                ".uno:InsertGraphic",
+                "{\"FileName\":{\"type\":\"string\",\"value\":\"file://${f.absolutePath}\"}," +
+                    "\"AsLink\":{\"type\":\"boolean\",\"value\":\"false\"}}",
+            )
+        }
+    }
+
+    private fun imageExt(uri: Uri): String {
+        val type = contentResolver.getType(uri) ?: return "jpg"
+        return when (type) { "image/png" -> "png"; "image/gif" -> "gif"; "image/webp" -> "webp"; else -> "jpg" }
     }
 
     private fun export(format: String, mime: String) {

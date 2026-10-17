@@ -9,6 +9,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -83,17 +93,28 @@ fun LoadingScreen() {
 fun ViewerScreen(
     title: String,
     state: DocumentViewState,
-    pageCount: Int,
     busy: Boolean,
     onBack: () -> Unit,
     onExportPdf: () -> Unit,
     onShareDoc: () -> Unit,
+    onSave: () -> Unit,
+    onPickImage: () -> Unit,
 ) {
-    Column(Modifier.fillMaxSize()) {
+    val context = LocalContext.current
+    var input by remember { mutableStateOf<KeyInputView?>(null) }
+    LaunchedEffect(state.wantKeyboard, state.editing, input) {
+        val v = input ?: return@LaunchedEffect
+        if (state.editing && state.wantKeyboard) v.showKeyboard() else v.hideKeyboard()
+    }
+    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))) {
         TopAppBar(
-            title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            title = { Text((if (state.dirty) "• " else "") + title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             navigationIcon = { TextButton(onBack) { Text("‹ " + stringResource(R.string.back)) } },
             actions = {
+                if (state.editing) {
+                    TextButton(onSave) { Text(stringResource(R.string.save)) }
+                    TextButton({ state.editing = false; state.wantKeyboard = false }) { Text(stringResource(R.string.done)) }
+                }
                 var menu by remember { mutableStateOf(false) }
                 TextButton({ menu = true }) { Text("⋮") }
                 DropdownMenu(menu, { menu = false }) {
@@ -104,21 +125,32 @@ fun ViewerScreen(
         )
         Box(Modifier.weight(1f)) {
             DocumentView(state)
-            Surface(
-                Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp),
-                shape = RoundedCornerShape(50),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f),
-            ) {
-                Row(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
-                    state.tick // refresh while scrolling
+            AndroidView(
+                factory = { KeyInputView(it).also { v -> input = v } },
+                update = { it.target = state },
+                modifier = Modifier.size(1.dp),
+            )
+            state.tick
+            if (!state.editing) {
+                Surface(
+                    Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp),
+                    shape = RoundedCornerShape(50),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f),
+                ) {
                     Text(
-                        stringResource(R.string.page_of, state.currentPage(), pageCount),
+                        stringResource(R.string.page_of, state.currentPage(), state.layout.pages.size),
+                        Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                         style = MaterialTheme.typography.labelLarge,
                     )
                 }
+                ExtendedFloatingActionButton(
+                    onClick = { state.editing = true },
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                ) { Text(stringResource(R.string.edit)) }
             }
             if (busy) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         }
+        if (state.editing) Ribbon(state, onPickImage)
     }
 }
