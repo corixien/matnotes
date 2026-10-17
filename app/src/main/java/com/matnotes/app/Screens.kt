@@ -102,7 +102,7 @@ fun ViewerScreen(
 ) {
     val context = LocalContext.current
     var input by remember { mutableStateOf<KeyInputView?>(null) }
-    LaunchedEffect(state.wantKeyboard, state.editing, input) {
+    LaunchedEffect(state.wantKeyboard, state.editing, input, state.focusTick) {
         val v = input ?: return@LaunchedEffect
         if (state.editing && state.wantKeyboard) v.showKeyboard() else v.hideKeyboard()
     }

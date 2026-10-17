@@ -52,6 +52,7 @@ import kotlin.math.roundToInt
 
 private const val TILE_PX = 512
 private const val MAX_ZOOM = 6f
+private const val MIN_ZOOM = 0.2f // zoom out well beyond one page width
 private const val BASE_LEVEL = 2 // level = zoom * 2; level 2 == fit-width scale
 private val PageGray = Color(0xFFE6E6E6)
 private val SelectionColor = Color(0x553D7BF0)
@@ -94,6 +95,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     var format by mutableStateOf<Map<String, String>>(emptyMap())
         private set
     var wantKeyboard by mutableStateOf(false)
+    var focusTick by mutableIntStateOf(0) // bump to move focus back to the document input
     var finding by mutableStateOf(false)
 
     private val cache = object : LruCache<TileKey, Tile>(96 * 1024 * 1024) {
@@ -130,7 +132,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     }
 
     fun transform(centroid: Offset, pan: Offset, zoomChange: Float) {
-        val nz = (zoom * zoomChange).coerceIn(1f, MAX_ZOOM)
+        val nz = (zoom * zoomChange).coerceIn(MIN_ZOOM, MAX_ZOOM)
         val k = nz / zoom
         zoom = nz
         offset = clamp(
@@ -230,6 +232,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
             mouse(Document.MOUSE_EVENT_BUTTON_UP, x, y, count, s)
         }
         wantKeyboard = true
+        focusTick++
     }
 
     fun typeText(t: String) { markDirty(); followCursor = true; edit { type(t) } }
@@ -289,20 +292,29 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
         }
         graphic?.let { g ->
             val handles = graphicHandles(g)
-            val idx = handles.indices.minByOrNull { dist(p, Offset(pxX(handles[it].x), pxY(handles[it].y))) } ?: -1
-            if (idx >= 0 && dist(p, Offset(pxX(handles[idx].x), pxY(handles[idx].y))) < hit) {
+            // small images: shrink the hit radius so edge handles do not steal the corners
+            val minSidePx = min(g.width(), g.height()) * scale
+            val radius = min(hit, max(minSidePx * 0.35f, 10f * density))
+            val corners = listOf(0, 2, 5, 7)
+            fun d(i: Int) = dist(p, Offset(pxX(handles[i].x), pxY(handles[i].y)))
+            val idx = corners.minByOrNull(::d)?.takeIf { d(it) < radius }
+                ?: handles.indices.minByOrNull(::d)?.takeIf { d(it) < radius }
+                ?: -1
+            if (idx >= 0) {
                 val h = handles[idx]
+                val s = scale
                 startDrag(Drag.GraphicHandle, p, h, 0f)
                 dragHandleIdx = idx
                 markDirty()
-                edit { setGraphicSelection(Document.SET_GRAPHIC_SELECTION_START, h.x.roundToInt(), h.y.roundToInt()) }
+                edit { setGraphicSelection(Document.SET_GRAPHIC_SELECTION_START, h.x.roundToInt(), h.y.roundToInt(), s) }
                 return true
             }
             if (g.contains(twX(p.x), twY(p.y))) {
                 val t = Offset(twX(p.x), twY(p.y))
                 startDrag(Drag.GraphicBody, p, t, 0f)
                 markDirty()
-                edit { setGraphicSelection(Document.SET_GRAPHIC_SELECTION_START, t.x.roundToInt(), t.y.roundToInt()) }
+                val s = scale
+                edit { setGraphicSelection(Document.SET_GRAPHIC_SELECTION_START, t.x.roundToInt(), t.y.roundToInt(), s) }
                 return true
             }
         }
@@ -367,7 +379,8 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
             Drag.GraphicBody, Drag.GraphicHandle -> {
                 val pt = (if (kind == Drag.GraphicBody) dragStartTw else dragHandleTw) + (cur - dragStartTw)
                 preview = null
-                edit { setGraphicSelection(Document.SET_GRAPHIC_SELECTION_END, pt.x.roundToInt(), pt.y.roundToInt()) }
+                val s = scale
+                edit { setGraphicSelection(Document.SET_GRAPHIC_SELECTION_END, pt.x.roundToInt(), pt.y.roundToInt(), s) }
             }
             else -> Unit
         }
@@ -454,7 +467,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     private fun tileTwips(renderScale: Float) = (TILE_PX / renderScale).toInt().coerceAtLeast(1)
 
     // ---- drawing ----
-    private fun level(): Int = ceil(zoom * BASE_LEVEL - 0.001f).toInt().coerceIn(BASE_LEVEL, (MAX_ZOOM * BASE_LEVEL).toInt())
+    private fun level(): Int = ceil(zoom * BASE_LEVEL - 0.001f).toInt().coerceIn(1, (MAX_ZOOM * BASE_LEVEL).toInt())
 
     fun draw(scope: DrawScope) = with(scope) {
         tick // subscribe to tile updates

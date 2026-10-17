@@ -10,6 +10,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.isImeVisible
@@ -63,11 +66,36 @@ private val Palette = listOf(
     0x92D050, 0x00B050, 0x00B0F0, 0x0070C0, 0x002060, 0x7030A0,
 )
 // Entries starting with '#' are group headings in the menu.
-private val Fonts = listOf(
-    "#Word", "Calibri", "Cambria", "Arial", "Arial Narrow", "Times New Roman", "Courier New",
-    "#Weitere Schriften", "Gentium Book Basic", "DejaVu Sans", "DejaVu Sans Condensed", "DejaVu Serif",
-    "DejaVu Sans Mono", "Comic Neue", "Anton",
+// Word-compatible: bundled metric clones render with Word's line breaks.
+// Other Word fonts: Microsoft's fonts cannot be bundled; the name is kept in the document (so Word shows the real
+// font) while this phone shows a stand-in. Free fonts: bundled, shown exactly.
+private val WordFonts = listOf("Calibri", "Cambria", "Arial", "Arial Narrow", "Times New Roman", "Courier New")
+private val OtherWordFonts = listOf(
+    "Agency FB", "Algerian", "Arial Black", "Arial Rounded MT Bold", "Baskerville Old Face", "Bauhaus 93",
+    "Bell MT", "Berlin Sans FB", "Bernard MT Condensed", "Bodoni MT", "Book Antiqua", "Bookman Old Style",
+    "Bradley Hand ITC", "Britannic Bold", "Brush Script MT", "Calibri Light", "Californian FB", "Calisto MT",
+    "Cambria Math", "Candara", "Castellar", "Centaur", "Century", "Century Gothic",
+    "Century Schoolbook", "Chiller", "Colonna MT", "Comic Sans MS", "Consolas", "Constantia",
+    "Cooper Black", "Copperplate Gothic", "Corbel", "Curlz MT", "Dubai", "Edwardian Script ITC",
+    "Elephant", "Engravers MT", "Eras ITC", "Felix Titling", "Footlight MT Light", "Forte",
+    "Franklin Gothic Book", "Franklin Gothic Medium", "Freestyle Script", "French Script MT", "Gabriola", "Garamond",
+    "Georgia", "Gigi", "Gill Sans MT", "Gloucester MT", "Goudy Old Style", "Haettenschweiler",
+    "Harlow Solid", "Harrington", "High Tower Text", "Impact", "Imprint MT Shadow", "Informal Roman",
+    "Jokerman", "Juice ITC", "Kristen ITC", "Kunstler Script", "Lucida Bright", "Lucida Calligraphy",
+    "Lucida Console", "Lucida Fax", "Lucida Handwriting", "Lucida Sans", "Lucida Sans Typewriter", "Magneto",
+    "Maiandra GD", "Matura MT Script Capitals", "Microsoft Sans Serif", "Mistral", "Modern No. 20", "Monotype Corsiva",
+    "MS Gothic", "MS Mincho", "MT Extra", "Niagara Engraved", "Niagara Solid", "OCR A Extended",
+    "Old English Text MT", "Onyx", "Palatino Linotype", "Papyrus", "Parchment", "Perpetua",
+    "Perpetua Titling MT", "Playbill", "Poor Richard", "Pristina", "Rage Italic", "Ravie",
+    "Rockwell", "Script MT Bold", "Segoe Print", "Segoe Script", "Segoe UI", "Segoe UI Light",
+    "Segoe UI Semibold", "Showcard Gothic", "SimSun", "Snap ITC", "Stencil", "Sylfaen",
+    "Symbol", "Tahoma", "Tempus Sans ITC", "Trebuchet MS", "Tw Cen MT", "Verdana",
+    "Viner Hand ITC", "Vivaldi", "Vladimir Script", "Webdings", "Wide Latin", "Wingdings",
+    "Yu Gothic",
 )
+private val FreeFonts = listOf("Gentium Book Basic", "DejaVu Sans", "DejaVu Sans Condensed", "DejaVu Serif", "DejaVu Sans Mono", "Comic Neue", "Anton")
+private val Fonts = listOf("#Word") + WordFonts + listOf("#Weitere Word-Schriften (Ersatzanzeige)") + OtherWordFonts +
+    listOf("#Freie Schriften") + FreeFonts
 private val Sizes = listOf(8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72)
 private val Styles = listOf(
     R.string.style_text to "Standard",
@@ -166,9 +194,11 @@ private fun StartTab(state: DocumentViewState) {
     Group(stringResource(R.string.g_font)) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Dropdown(fontName.take(16), 132.dp, Fonts) { state.charFormat(".uno:CharFontName", args(arg("CharFontName.FamilyName", "string", it))) }
-                Dropdown(size?.let { if (it % 1f == 0f) it.toInt().toString() else it.toString() } ?: "–", 52.dp, Sizes.map { it.toString() }) {
-                    state.charFormat(".uno:FontHeight", args(arg("FontHeight.Height", "float", it)))
+                Combo(fontName, 140.dp, Fonts, state = state) { state.charFormat(".uno:CharFontName", args(arg("CharFontName.FamilyName", "string", it))) }
+                Combo(size?.let { if (it % 1f == 0f) it.toInt().toString() else it.toString() } ?: "", 62.dp, Sizes.map { it.toString() }, numeric = true, state = state) {
+                    it.replace(',', '.').toFloatOrNull()?.takeIf { v -> v in 1f..1638f }?.let { v ->
+                        state.charFormat(".uno:FontHeight", args(arg("FontHeight.Height", "float", "$v")))
+                    }
                 }
                 IconBtn(onClick = { size?.let { state.charFormat(".uno:FontHeight", args(arg("FontHeight.Height", "float", "${it + 1}"))) } }) { Glyph("A⁺", 15) }
                 IconBtn(onClick = { size?.let { state.charFormat(".uno:FontHeight", args(arg("FontHeight.Height", "float", "${(it - 1).coerceAtLeast(1f)}"))) } }) { Glyph("A⁻", 13) }
@@ -228,7 +258,7 @@ private fun InsertTab(state: DocumentViewState, onPickImage: () -> Unit) {
         var open by remember { mutableStateOf(false) }
         Box {
             BigBtn(stringResource(R.string.insert_table), onClick = { open = true }) { Ic(26.dp) { tableIcon(it) } }
-            DropdownMenu(open, { open = false }) {
+            DropdownMenu(open, { open = false }, modifier = Modifier.heightIn(max = 360.dp)) {
                 listOf(2 to 2, 3 to 3, 4 to 4, 5 to 5, 3 to 6).forEach { (c, r) ->
                     DropdownMenuItem({ Text("$c × $r") }, {
                         open = false
@@ -469,21 +499,61 @@ private fun BigBtn(label: String, width: Dp = 60.dp, enabled: Boolean = true, on
 @Composable
 private fun Glyph(text: String, size: Int) = Text(text, fontSize = size.sp)
 
+/** Word-style combo box: type a value and press Done, or open the (scrollable) list. */
 @Composable
-private fun Dropdown(label: String, width: Dp, items: List<String>, onPick: (String) -> Unit) {
+private fun Combo(
+    value: String,
+    width: Dp,
+    items: List<String>,
+    numeric: Boolean = false,
+    state: DocumentViewState,
+    onCommit: (String) -> Unit,
+) {
+    var field by remember(value) { mutableStateOf(TextFieldValue(value)) }
     var open by remember { mutableStateOf(false) }
+    var focused by remember { mutableStateOf(false) }
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    // the tap that focuses the field also places the caret; select everything afterwards, like Word
+    LaunchedEffect(focused) {
+        if (focused) {
+            kotlinx.coroutines.delay(120)
+            field = field.copy(selection = androidx.compose.ui.text.TextRange(0, field.text.length))
+        }
+    }
+    fun commit(v: String) {
+        val t = v.trim()
+        if (t.isNotEmpty()) onCommit(t)
+        focus.clearFocus()
+        state.focusTick++ // hand the keyboard back to the document
+    }
     Box(Modifier.padding(horizontal = 2.dp)) {
         Row(
             Modifier.width(width).height(RowH - 4.dp)
                 .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
-                .clip(RoundedCornerShape(4.dp)).clickable { open = true }.padding(horizontal = 6.dp),
+                .clip(RoundedCornerShape(4.dp)),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text(label, fontSize = 13.sp, maxLines = 1)
-            Text("▾", fontSize = 11.sp)
+            androidx.compose.foundation.text.BasicTextField(
+                value = field,
+                onValueChange = { field = it },
+                singleLine = true,
+                textStyle = androidx.compose.ui.text.TextStyle(color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp),
+                cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                    keyboardType = if (numeric) androidx.compose.ui.text.input.KeyboardType.Decimal else androidx.compose.ui.text.input.KeyboardType.Text,
+                    imeAction = androidx.compose.ui.text.input.ImeAction.Done,
+                ),
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { commit(field.text) }),
+                modifier = Modifier.weight(1f).padding(start = 6.dp).androidx_onFocus(
+                    onFocus = { focused = true },
+                    onBlur = { focused = false; field = TextFieldValue(value) },
+                ),
+            )
+            Box(Modifier.fillMaxHeight().clickable { open = true }.padding(horizontal = 7.dp), contentAlignment = Alignment.Center) {
+                Text("▾", fontSize = 11.sp)
+            }
         }
-        DropdownMenu(open, { open = false }) {
+        DropdownMenu(open, { open = false }, modifier = Modifier.heightIn(max = 360.dp)) {
             items.forEach {
                 if (it.startsWith("#")) {
                     DropdownMenuItem(
@@ -491,12 +561,15 @@ private fun Dropdown(label: String, width: Dp, items: List<String>, onPick: (Str
                         {}, enabled = false,
                     )
                 } else {
-                    DropdownMenuItem({ Text(it) }, { open = false; onPick(it) })
+                    DropdownMenuItem({ Text(it) }, { open = false; commit(it) })
                 }
             }
         }
     }
 }
+
+private fun Modifier.androidx_onFocus(onFocus: () -> Unit, onBlur: () -> Unit): Modifier =
+    this.onFocusChanged { if (it.isFocused) onFocus() else onBlur() }
 
 @Composable
 private fun ColorBtn(isHighlight: Boolean, allowNone: Boolean = false, onPick: (Int) -> Unit) {
@@ -510,7 +583,7 @@ private fun ColorBtn(isHighlight: Boolean, allowNone: Boolean = false, onPick: (
                 Box(Modifier.width(18.dp).height(4.dp).background(Color(0xFF000000 or color.toLong())))
             }
         }
-        DropdownMenu(open, { open = false }) {
+        DropdownMenu(open, { open = false }, modifier = Modifier.heightIn(max = 360.dp)) {
             Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Palette.chunked(5).forEach { row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -540,7 +613,7 @@ private fun SpacingBtn(state: DocumentViewState, big: Boolean = false) {
     Box {
         if (big) BigBtn(stringResource(R.string.line_spacing), onClick = { open = true }) { Ic(26.dp) { spacingIcon(it) } }
         else IconBtn(onClick = { open = true }) { Ic { spacingIcon(it) } }
-        DropdownMenu(open, { open = false }) {
+        DropdownMenu(open, { open = false }, modifier = Modifier.heightIn(max = 360.dp)) {
             listOf("1.0" to ".uno:SpacePara1", "1.5" to ".uno:SpacePara15", "2.0" to ".uno:SpacePara2").forEach { (label, cmd) ->
                 DropdownMenuItem({ Text(label) }, { open = false; state.uno(cmd) })
             }

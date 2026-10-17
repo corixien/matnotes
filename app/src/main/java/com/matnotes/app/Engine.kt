@@ -155,7 +155,12 @@ class LoDocument(private val doc: Document, val file: File) {
 
     fun setTextSelection(type: Int, xTw: Int, yTw: Int) = doc.setTextSelection(type, xTw, yTw)
 
-    fun setGraphicSelection(type: Int, xTw: Int, yTw: Int) = doc.setGraphicSelection(type, xTw, yTw)
+    fun setGraphicSelection(type: Int, xTw: Int, yTw: Int, pxPerTwip: Float) {
+        // LibreOffice sizes its handle hit-area from the client zoom; without it small images pick edge handles
+        val tile = (256 / pxPerTwip).toInt().coerceAtLeast(1)
+        doc.setClientZoom(256, 256, tile, tile)
+        doc.setGraphicSelection(type, xTw, yTw)
+    }
 
     fun selectedText(): String? = doc.getTextSelection("text/plain;charset=utf-8")
 

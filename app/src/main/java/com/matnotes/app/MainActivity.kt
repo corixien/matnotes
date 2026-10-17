@@ -119,6 +119,7 @@ class MainActivity : ComponentActivity() {
     private fun handleIntent(i: Intent?) {
         if (BuildConfig.DEBUG) {
             // adb test hooks: --es uno <cmd> [--es unoargs <json>] ; --es insert_image <path in app files dir>
+            i?.getStringExtra("zoom")?.toFloatOrNull()?.let { f -> current?.state?.zoomBy(f); return }
             i?.getStringExtra("link")?.let { l ->
                 val (t, u) = l.split('|'); current?.state?.insertLink(t, u); return
             }
