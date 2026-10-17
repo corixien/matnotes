@@ -117,6 +117,20 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIntent(i: Intent?) {
+        if (BuildConfig.DEBUG) {
+            // adb test hooks: --es uno <cmd> [--es unoargs <json>] ; --es insert_image <path in app files dir>
+            i?.getStringExtra("uno")?.let { cmd ->
+                current?.state?.uno(cmd, i.getStringExtra("unoargs").orEmpty())
+                return
+            }
+            i?.getStringExtra("insert_image")?.let { p ->
+                current?.state?.uno(
+                    ".uno:InsertGraphic",
+                    "{\"FileName\":{\"type\":\"string\",\"value\":\"file://$p\"},\"AsLink\":{\"type\":\"boolean\",\"value\":\"false\"}}",
+                )
+                return
+            }
+        }
         val uri = when (i?.action) {
             Intent.ACTION_VIEW, Intent.ACTION_EDIT -> i.data
             Intent.ACTION_SEND -> @Suppress("DEPRECATION") i.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)

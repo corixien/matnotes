@@ -56,6 +56,7 @@ private const val BASE_LEVEL = 2 // level = zoom * 2; level 2 == fit-width scale
 private val PageGray = Color(0xFFE6E6E6)
 private val SelectionColor = Color(0x553D7BF0)
 private val AccentColor = Color(0xFF2B579A)
+private val CursorColor = Color(0xFF1B1B1B)
 
 private data class TileKey(val page: Int, val level: Int, val tx: Int, val ty: Int)
 
@@ -196,12 +197,24 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     fun uno(cmd: String, args: String = "") { if (cmd != ".uno:Copy") markDirty(); edit { uno(cmd, args) } }
     fun markDirty() { dirty = true }
 
+    /** Character formatting: like Word, applies to the word under the cursor when nothing is selected. */
+    fun charFormat(cmd: String, args: String = "") {
+        markDirty()
+        if (selection.isEmpty() && graphic == null) edit { uno(".uno:SelectWord"); uno(cmd, args) } else edit { uno(cmd, args) }
+    }
+
+    fun zoomBy(f: Float) = transform(Offset(viewSize.width / 2f, viewSize.height / 2f), Offset.Zero, f)
+    fun fitWidth() = transform(Offset(viewSize.width / 2f, viewSize.height / 2f), Offset.Zero, 1f / zoom)
+
     // ---- drag handling for selection handles / graphics ----
     private var drag: Drag? = null
     private var dragStartTw = Offset.Zero
     private var dragRectH = 0f
     private var dragHandleTw = Offset.Zero
     private var dragPos = Offset.Zero
+    private var dragHandleIdx = -1
+    var preview by mutableStateOf<RectF?>(null)
+        private set
 
     private fun dist(a: Offset, b: Offset) = (a - b).getDistance()
 
@@ -218,17 +231,20 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
         }
         graphic?.let { g ->
             val handles = graphicHandles(g)
-            val h = handles.minByOrNull { dist(p, Offset(pxX(it.x), pxY(it.y))) }
-            if (h != null && dist(p, Offset(pxX(h.x), pxY(h.y))) < hit) {
+            val idx = handles.indices.minByOrNull { dist(p, Offset(pxX(handles[it].x), pxY(handles[it].y))) } ?: -1
+            if (idx >= 0 && dist(p, Offset(pxX(handles[idx].x), pxY(handles[idx].y))) < hit) {
+                val h = handles[idx]
                 startDrag(Drag.GraphicHandle, p, h, 0f)
+                dragHandleIdx = idx
+                markDirty()
                 edit { setGraphicSelection(Document.SET_GRAPHIC_SELECTION_START, h.x.roundToInt(), h.y.roundToInt()) }
                 return true
             }
             if (g.contains(twX(p.x), twY(p.y))) {
-                startDrag(Drag.GraphicBody, p, Offset(twX(p.x), twY(p.y)), 0f)
-                val s = scale
-                val x = twX(p.x).roundToInt(); val y = twY(p.y).roundToInt()
-                edit { mouse(Document.MOUSE_EVENT_BUTTON_DOWN, x, y, 1, s) }
+                val t = Offset(twX(p.x), twY(p.y))
+                startDrag(Drag.GraphicBody, p, t, 0f)
+                markDirty()
+                edit { setGraphicSelection(Document.SET_GRAPHIC_SELECTION_START, t.x.roundToInt(), t.y.roundToInt()) }
                 return true
             }
         }
@@ -261,10 +277,27 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
                 doc.post { setTextSelection(type, x, y) }
             }
             Drag.GraphicBody -> {
-                val s = scale; val x = cur.x.roundToInt(); val y = cur.y.roundToInt()
-                edit { mouse(Document.MOUSE_EVENT_MOVE, x, y, 1, s) }
+                val g = graphic ?: return
+                val d = cur - dragStartTw
+                preview = RectF(g.left + d.x, g.top + d.y, g.right + d.x, g.bottom + d.y)
             }
-            Drag.GraphicHandle -> Unit
+            Drag.GraphicHandle -> {
+                val g = graphic ?: return
+                val d = cur - dragStartTw
+                val r = RectF(g)
+                val x = dragHandleTw.x + d.x; val y = dragHandleTw.y + d.y
+                when (dragHandleIdx) {
+                    0 -> { r.left = x; r.top = y }
+                    1 -> r.top = y
+                    2 -> { r.right = x; r.top = y }
+                    3 -> r.left = x
+                    4 -> r.right = x
+                    5 -> { r.left = x; r.bottom = y }
+                    6 -> r.bottom = y
+                    7 -> { r.right = x; r.bottom = y }
+                }
+                preview = r
+            }
         }
     }
 
@@ -273,10 +306,9 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
         drag = null
         val cur = Offset(twX(dragPos.x), twY(dragPos.y))
         when (kind) {
-            Drag.GraphicBody -> { markDirty(); val s = scale; val x = cur.x.roundToInt(); val y = cur.y.roundToInt(); edit { mouse(Document.MOUSE_EVENT_BUTTON_UP, x, y, 1, s) } }
-            Drag.GraphicHandle -> {
-                markDirty()
-                val pt = dragHandleTw + (cur - dragStartTw)
+            Drag.GraphicBody, Drag.GraphicHandle -> {
+                val pt = (if (kind == Drag.GraphicBody) dragStartTw else dragHandleTw) + (cur - dragStartTw)
+                preview = null
                 edit { setGraphicSelection(Document.SET_GRAPHIC_SELECTION_END, pt.x.roundToInt(), pt.y.roundToInt()) }
             }
             else -> Unit
@@ -397,7 +429,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
                 Size(r.width() * zb, r.height() * zb),
             )
         }
-        val hr = 7f * density
+        val hr = 5.5f * density
         if (selection.isNotEmpty()) {
             selStart?.let { drawHandle(Offset(pxX(it.left), pxY(it.bottom)), hr) }
             selEnd?.let { drawHandle(Offset(pxX(it.right), pxY(it.bottom)), hr) }
@@ -411,12 +443,20 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
                 drawCircle(AccentColor, hr * 0.8f, c, style = Stroke(2f * density))
             }
         }
+        preview?.let { r ->
+            drawRect(
+                AccentColor.copy(alpha = 0.25f),
+                Offset(pxX(r.left), pxY(r.top)),
+                Size(r.width() * zb, r.height() * zb),
+            )
+            drawRect(AccentColor, Offset(pxX(r.left), pxY(r.top)), Size(r.width() * zb, r.height() * zb), style = Stroke(2f * density))
+        }
         val c = cursor
         if (c != null && cursorVisible && blinkOn && selection.isEmpty() && graphic == null) {
             drawRect(
-                AccentColor,
-                Offset(pxX(c.left) - density, pxY(c.top)),
-                Size(2f * density, c.height() * zb),
+                CursorColor,
+                Offset(pxX(c.left) - 0.5f * density, pxY(c.top)),
+                Size(1f * density, c.height() * zb),
             )
         }
     }
