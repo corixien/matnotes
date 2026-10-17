@@ -119,6 +119,9 @@ class MainActivity : ComponentActivity() {
     private fun handleIntent(i: Intent?) {
         if (BuildConfig.DEBUG) {
             // adb test hooks: --es uno <cmd> [--es unoargs <json>] ; --es insert_image <path in app files dir>
+            i?.getStringExtra("link")?.let { l ->
+                val (t, u) = l.split('|'); current?.state?.insertLink(t, u); return
+            }
             i?.getStringExtra("uno")?.let { cmd ->
                 current?.state?.uno(cmd, i.getStringExtra("unoargs").orEmpty())
                 return

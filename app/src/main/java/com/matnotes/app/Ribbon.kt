@@ -62,10 +62,15 @@ private val Palette = listOf(
     0x000000, 0x7F7F7F, 0xFFFFFF, 0xC00000, 0xFF0000, 0xFFC000, 0xFFFF00,
     0x92D050, 0x00B050, 0x00B0F0, 0x0070C0, 0x002060, 0x7030A0,
 )
-private val Fonts = listOf("Calibri", "Cambria", "Arial", "Times New Roman", "Courier New")
+// Entries starting with '#' are group headings in the menu.
+private val Fonts = listOf(
+    "#Word", "Calibri", "Cambria", "Arial", "Arial Narrow", "Times New Roman", "Courier New",
+    "#Weitere Schriften", "Gentium Book Basic", "DejaVu Sans", "DejaVu Sans Condensed", "DejaVu Serif",
+    "DejaVu Sans Mono", "Comic Neue", "Anton",
+)
 private val Sizes = listOf(8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72)
 private val Styles = listOf(
-    R.string.style_text to "Default Paragraph Style",
+    R.string.style_text to "Standard",
     R.string.style_title to "Title",
     R.string.style_h1 to "Heading 1",
     R.string.style_h2 to "Heading 2",
@@ -215,9 +220,7 @@ private fun StartTab(state: DocumentViewState) {
 @Composable
 private fun InsertTab(state: DocumentViewState, onPickImage: () -> Unit) {
     var linkDialog by remember { mutableStateOf(false) }
-    if (linkDialog) LinkDialog({ linkDialog = false }) { text, url ->
-        state.uno(".uno:SetHyperlink", args(arg("Hyperlink.Text", "string", text), arg("Hyperlink.URL", "string", url)))
-    }
+    if (linkDialog) LinkDialog({ linkDialog = false }) { text, url -> state.insertLink(text, url) }
     Group(stringResource(R.string.g_pages)) {
         BigBtn(stringResource(R.string.insert_pagebreak), onClick = { state.uno(".uno:InsertPagebreak") }) { Ic(26.dp) { pageBreakIcon(it) } }
     }
@@ -481,7 +484,16 @@ private fun Dropdown(label: String, width: Dp, items: List<String>, onPick: (Str
             Text("▾", fontSize = 11.sp)
         }
         DropdownMenu(open, { open = false }) {
-            items.forEach { DropdownMenuItem({ Text(it) }, { open = false; onPick(it) }) }
+            items.forEach {
+                if (it.startsWith("#")) {
+                    DropdownMenuItem(
+                        { Text(it.drop(1), fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) },
+                        {}, enabled = false,
+                    )
+                } else {
+                    DropdownMenuItem({ Text(it) }, { open = false; onPick(it) })
+                }
+            }
         }
     }
 }
@@ -552,7 +564,7 @@ private fun StyleCard(label: String, style: String, onClick: () -> Unit) {
             "Heading 3" -> 15 to FontWeight.SemiBold
             else -> 16 to FontWeight.Normal
         }
-        Text("AaBb", fontSize = size.sp, fontWeight = weight, color = if (style == "Default Paragraph Style") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.primary)
+        Text("AaBb", fontSize = size.sp, fontWeight = weight, color = if (style == "Standard") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.primary)
         Text(label, fontSize = 10.sp, maxLines = 1)
     }
 }

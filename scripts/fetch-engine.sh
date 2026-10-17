@@ -16,4 +16,5 @@ unzip -q -o "$APK" 'assets/*' -d engine/x
 mv engine/x/lib/arm64-v8a app/src/main/jniLibs/
 cp -r engine/x/assets/. app/src/main/assets/
 rm -rf engine/x
+./scripts/fetch-fonts.sh
 echo "engine ready"

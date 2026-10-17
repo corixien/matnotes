@@ -243,6 +243,24 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
         if (selection.isEmpty() && graphic == null) edit { uno(".uno:SelectWord"); uno(cmd, args) } else edit { uno(cmd, args) }
     }
 
+    /** Link on the selection, or at the cursor: type [text], select it, then apply the hyperlink. */
+    fun insertLink(text: String, url: String) {
+        markDirty()
+        fun j(v: String) = v.replace("\\", "\\\\").replace("\"", "\\\"")
+        val args = "{\"Hyperlink.Text\":{\"type\":\"string\",\"value\":\"${j(text)}\"}," +
+            "\"Hyperlink.URL\":{\"type\":\"string\",\"value\":\"${j(url)}\"}}"
+        val hadSelection = selection.isNotEmpty()
+        edit {
+            if (!hadSelection) {
+                type(text)
+                repeat(text.length) { uno(".uno:CharLeftSel") }
+            }
+            uno(".uno:SetHyperlink", args)
+            // the selection was made leftwards: the first RIGHT collapses it, the rest walk to its end
+            repeat(if (hadSelection) 1 else text.length) { pressKey(Keys.RIGHT) }
+        }
+    }
+
     fun zoomBy(f: Float) = transform(Offset(viewSize.width / 2f, viewSize.height / 2f), Offset.Zero, f)
     fun fitWidth() = transform(Offset(viewSize.width / 2f, viewSize.height / 2f), Offset.Zero, 1f / zoom)
 
