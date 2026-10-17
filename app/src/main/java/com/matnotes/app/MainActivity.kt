@@ -161,6 +161,7 @@ class MainActivity : ComponentActivity() {
     private fun handleIntent(i: Intent?) {
         if (BuildConfig.DEBUG) {
             // adb test hooks: --es uno <cmd> [--es unoargs <json>] ; --es insert_image <path in app files dir>
+            i?.getStringExtra("shape")?.let { c -> current?.state?.insertShape(c); return }
             i?.getStringExtra("zoom")?.toFloatOrNull()?.let { f -> current?.state?.zoomBy(f); return }
             i?.getStringExtra("link")?.let { l ->
                 val (t, u) = l.split('|'); current?.state?.insertLink(t, u); return
@@ -433,7 +434,6 @@ class MainActivity : ComponentActivity() {
                 st.dirty = true
                 current = OpenDoc(doc, cur.title, st, cur.source)
                 lifecycleScope.launch(Engine.dispatcher) { cur.doc.close() }
-                android.widget.Toast.makeText(this@MainActivity, R.string.page_setup_applied, android.widget.Toast.LENGTH_SHORT).show()
             } catch (e: Throwable) {
                 Log.e(TAG, "page setup failed", e)
                 android.widget.Toast.makeText(this@MainActivity, R.string.export_failed, android.widget.Toast.LENGTH_LONG).show()

@@ -133,7 +133,7 @@ fun Ribbon(state: DocumentViewState, onPickImage: () -> Unit, onPageSetup: (Page
     val tabs = listOf(
         TAB_START to R.string.tab_start, TAB_INSERT to R.string.tab_insert, TAB_LAYOUT to R.string.tab_layout,
         TAB_REFS to R.string.tab_refs, TAB_REVIEW to R.string.tab_review, TAB_VIEW to R.string.tab_view,
-    ) + if (hasGraphic) listOf(TAB_PICTURE to R.string.tab_picture) else emptyList()
+    ) + if (hasGraphic) listOf(TAB_PICTURE to (if (state.graphicIsImage) R.string.tab_picture else R.string.tab_shape)) else emptyList()
 
     Surface(tonalElevation = 3.dp) {
         Column(Modifier.fillMaxWidth()) {
@@ -211,6 +211,7 @@ private fun StartTab(state: DocumentViewState) {
             }
         }
         BigBtn(stringResource(R.string.paste), enabled = enabled(".uno:Paste"), onClick = { state.uno(".uno:Paste") }) { Ic(26.dp) { clipboardIcon(it) } }
+        BigBtn(stringResource(R.string.format_painter), onClick = { state.uno(".uno:FormatPaintbrush") }) { Glyph("🖌", 20) }
     }
     Group(stringResource(R.string.g_font)) {
         Column {
@@ -234,6 +235,7 @@ private fun StartTab(state: DocumentViewState) {
                 ColorBtn(isHighlight = true, allowNone = true) { state.charFormat(".uno:BackColor", args(arg("BackColor", "long", "$it"))) }
                 ColorBtn(isHighlight = false) { state.charFormat(".uno:Color", args(arg("Color", "long", "$it"))) }
                 IconBtn(onClick = { state.charFormat(".uno:ResetAttributes") }) { Ic { clearFormatIcon(it) } }
+                CaseMenu(state)
             }
         }
     }
@@ -252,6 +254,7 @@ private fun StartTab(state: DocumentViewState) {
                 IconBtn(on(".uno:RightPara"), onClick = { state.uno(".uno:RightPara") }) { Ic { alignIcon(it, 2) } }
                 IconBtn(on(".uno:JustifyPara"), onClick = { state.uno(".uno:JustifyPara") }) { Ic { alignIcon(it, 3) } }
                 IconBtn(on(".uno:ControlCodes"), onClick = { state.uno(".uno:ControlCodes") }) { Glyph("¶", 18) }
+                ColorBtn(isHighlight = true, allowNone = true) { state.uno(".uno:BackgroundColor", args(arg("BackgroundColor", "long", "$it"))) }
             }
         }
     }
@@ -302,6 +305,32 @@ private fun InsertTab(state: DocumentViewState, onPickImage: () -> Unit) {
     }
     Group(stringResource(R.string.g_illustrations)) {
         BigBtn(stringResource(R.string.insert_picture), onClick = onPickImage) { Ic(26.dp) { imageIcon(it) } }
+        MenuBigBtn(stringResource(R.string.shapes), { Ic(26.dp) { shapesIcon(it) } }) { close ->
+            ShapeGroups.forEach { (title, items) ->
+                DropdownMenuItem(
+                    { Text(stringResource(title), fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) },
+                    {}, enabled = false,
+                )
+                items.forEach { (label, cmd) ->
+                    DropdownMenuItem({ Text(stringResource(label)) }, { close(); state.insertShape(cmd) })
+                }
+            }
+        }
+        BigBtn(stringResource(R.string.text_box), onClick = { state.insertShape(".uno:DrawText") }) { Glyph("A▭", 17) }
+    }
+    Group(stringResource(R.string.g_symbols)) {
+        MenuBigBtn(stringResource(R.string.symbol), { Glyph("Ω", 24) }) { close ->
+            Symbols.chunked(6).forEach { row ->
+                Row(Modifier.padding(horizontal = 8.dp)) {
+                    row.forEach { ch ->
+                        Box(
+                            Modifier.size(40.dp).clip(RoundedCornerShape(6.dp)).clickable { close(); state.typeText(ch) },
+                            contentAlignment = Alignment.Center,
+                        ) { Text(ch, fontSize = 20.sp) }
+                    }
+                }
+            }
+        }
     }
     Group(stringResource(R.string.g_links)) {
         BigBtn(stringResource(R.string.link), onClick = { linkDialog = true }) { Glyph("🔗", 22) }
@@ -361,6 +390,7 @@ private fun LayoutTab(state: DocumentViewState, onPageSetup: (PageSetupChange) -
     }
     Group(stringResource(R.string.g_pages), last = true) {
         BigBtn(stringResource(R.string.insert_pagebreak), onClick = { state.uno(".uno:InsertPagebreak") }) { Ic(26.dp) { pageBreakIcon(it) } }
+        BigBtn(stringResource(R.string.column_break), onClick = { state.uno(".uno:InsertColumnBreak") }) { Glyph("⫼", 22) }
     }
 }
 
@@ -432,6 +462,14 @@ private fun PictureTab(state: DocumentViewState) {
     Group(stringResource(R.string.g_anchor)) {
         BigBtn(stringResource(R.string.anchor_para), width = 72.dp, onClick = { state.uno(".uno:SetAnchorToPara") }) { Glyph("⚓", 20) }
         BigBtn(stringResource(R.string.anchor_page), width = 72.dp, onClick = { state.uno(".uno:SetAnchorToPage") }) { Glyph("▭", 22) }
+    }
+    if (!state.graphicIsImage) {
+        Group(stringResource(R.string.g_shape_style)) {
+            ColorBtn(isHighlight = true, allowNone = false) { state.uno(".uno:FillColor", args(arg("FillColor", "long", "$it"))) }
+            Text(stringResource(R.string.shape_fill), fontSize = 11.sp, modifier = Modifier.padding(end = 6.dp))
+            ColorBtn(isHighlight = false, allowNone = false) { state.uno(".uno:XLineColor", args(arg("XLineColor", "long", "$it"))) }
+            Text(stringResource(R.string.shape_outline), fontSize = 11.sp, modifier = Modifier.padding(end = 6.dp))
+        }
     }
     Group(stringResource(R.string.g_edit_picture), last = true) {
         BigBtn(stringResource(R.string.cut), onClick = { state.uno(".uno:Cut") }) { Glyph("✂", 20) }
@@ -776,6 +814,72 @@ private fun MarginsDialog(onDismiss: () -> Unit, onOk: (IntArray) -> Unit) {
     )
 }
 
+/** Word's "Aa" menu. */
+@Composable
+private fun CaseMenu(state: DocumentViewState) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconBtn(onClick = { open = true }) { Glyph("Aa", 15) }
+        DropdownMenu(open, { open = false }) {
+            listOf(
+                R.string.case_sentence to ".uno:ChangeCaseSentenceCase",
+                R.string.case_lower to ".uno:ChangeCaseToLower",
+                R.string.case_upper to ".uno:ChangeCaseToUpper",
+                R.string.case_words to ".uno:ChangeCaseCapitalizeEveryWord",
+                R.string.case_toggle to ".uno:ChangeCaseToggleCase",
+            ).forEach { (label, cmd) ->
+                DropdownMenuItem({ Text(stringResource(label)) }, { open = false; state.charFormat(cmd) })
+            }
+        }
+    }
+}
+
+private val Symbols = listOf(
+    "©", "®", "™", "€", "£", "¥", "§", "¶", "°", "±", "×", "÷", "≠", "≈", "≤", "≥", "∞", "√",
+    "→", "←", "↑", "↓", "↔", "⇒", "✓", "✗", "★", "☆", "♥", "♦", "•", "…", "–", "—", "«", "»",
+    "α", "β", "γ", "δ", "π", "Σ", "Ω", "µ", "½", "¼", "¾", "²", "³", "‰", "†", "‡",
+)
+
+/** Shape ids as used by LibreOffice (.uno:Category.shape-id); each is inserted at default size in the middle of the view. */
+private val ShapeGroups: List<Pair<Int, List<Pair<Int, String>>>> = listOf(
+    R.string.shapes_basic to listOf(
+        R.string.shape_rectangle to ".uno:BasicShapes.rectangle",
+        R.string.shape_rounded to ".uno:BasicShapes.round-rectangle",
+        R.string.shape_ellipse to ".uno:BasicShapes.ellipse",
+        R.string.shape_triangle to ".uno:BasicShapes.isosceles-triangle",
+        R.string.shape_diamond to ".uno:BasicShapes.diamond",
+        R.string.shape_hexagon to ".uno:BasicShapes.hexagon",
+        R.string.shape_cross to ".uno:BasicShapes.cross",
+    ),
+    R.string.shapes_arrows to listOf(
+        R.string.shape_arrow_right to ".uno:ArrowShapes.right-arrow",
+        R.string.shape_arrow_left to ".uno:ArrowShapes.left-arrow",
+        R.string.shape_arrow_up to ".uno:ArrowShapes.up-arrow",
+        R.string.shape_arrow_down to ".uno:ArrowShapes.down-arrow",
+        R.string.shape_arrow_both to ".uno:ArrowShapes.left-right-arrow",
+    ),
+    R.string.shapes_stars to listOf(
+        R.string.shape_star4 to ".uno:StarShapes.star4",
+        R.string.shape_star5 to ".uno:StarShapes.star5",
+        R.string.shape_star6 to ".uno:StarShapes.star6",
+        R.string.shape_heart to ".uno:SymbolShapes.heart",
+        R.string.shape_sun to ".uno:SymbolShapes.sun",
+        R.string.shape_smiley to ".uno:SymbolShapes.smiley",
+        R.string.shape_cloud to ".uno:SymbolShapes.cloud",
+    ),
+    R.string.shapes_flow to listOf(
+        R.string.shape_process to ".uno:FlowChartShapes.flowchart-process",
+        R.string.shape_decision to ".uno:FlowChartShapes.flowchart-decision",
+        R.string.shape_terminator to ".uno:FlowChartShapes.flowchart-terminator",
+        R.string.shape_data to ".uno:FlowChartShapes.flowchart-data",
+        R.string.shape_document to ".uno:FlowChartShapes.flowchart-document",
+    ),
+    R.string.shapes_callouts to listOf(
+        R.string.shape_callout to ".uno:CalloutShapes.round-rectangular-callout",
+        R.string.shape_callout_round to ".uno:CalloutShapes.round-callout",
+    ),
+)
+
 // ---------------------------------------------------------------- icons
 
 @Composable
@@ -925,4 +1029,11 @@ private fun DrawScope.orientationIcon(c: Color) {
     val w = size.width; val h = size.height; val sw = 1.6f * density
     drawRoundRect(c, Offset(w * 0.2f, h * 0.04f), Size(w * 0.36f, h * 0.6f), CornerRadius(2f * density), style = Stroke(sw))
     drawRoundRect(c, Offset(w * 0.34f, h * 0.5f), Size(w * 0.6f, h * 0.38f), CornerRadius(2f * density), style = Stroke(sw))
+}
+
+private fun DrawScope.shapesIcon(c: Color) {
+    val w = size.width; val h = size.height; val sw = 1.6f * density
+    drawRect(c, Offset(w * 0.06f, h * 0.5f), Size(w * 0.38f, h * 0.42f), style = Stroke(sw))
+    drawCircle(c, w * 0.2f, Offset(w * 0.68f, h * 0.3f), style = Stroke(sw))
+    drawPath(Path().apply { moveTo(w * 0.7f, h * 0.55f); lineTo(w * 0.94f, h * 0.92f); lineTo(w * 0.5f, h * 0.92f); close() }, c, style = Stroke(sw))
 }

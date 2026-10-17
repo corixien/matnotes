@@ -265,7 +265,13 @@ private fun TopBar(title: String, state: DocumentViewState, actions: ViewerActio
                     Text("✓", fontSize = 22.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 }
             } else {
-                BarButton({ state.editing = true }) { Text("✎", fontSize = 20.sp, color = MaterialTheme.colorScheme.primary) }
+                BarButton(actions.onSave) { SaveIcon() }
+                // filled round button with a drawn pencil
+                Box(
+                    Modifier.padding(horizontal = 4.dp).size(40.dp).clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary).clickable { state.editing = true },
+                    contentAlignment = Alignment.Center,
+                ) { PencilIcon(MaterialTheme.colorScheme.onPrimary) }
             }
             var menu by remember { mutableStateOf(false) }
             Box {
@@ -292,6 +298,23 @@ private fun BarButton(onClick: () -> Unit, enabled: Boolean = true, content: @Co
             .then(if (enabled) Modifier else Modifier.alpha(0.35f)),
         contentAlignment = Alignment.Center,
     ) { content() }
+}
+
+@Composable
+private fun PencilIcon(color: Color) {
+    androidx.compose.foundation.Canvas(Modifier.size(20.dp)) {
+        val w = size.width
+        // pencil pointing to the lower left: body, tip, eraser end
+        val body = androidx.compose.ui.graphics.Path().apply {
+            moveTo(w * 0.72f, w * 0.08f); lineTo(w * 0.92f, w * 0.28f); lineTo(w * 0.34f, w * 0.86f); lineTo(w * 0.14f, w * 0.66f); close()
+        }
+        drawPath(body, color)
+        val tip = androidx.compose.ui.graphics.Path().apply {
+            moveTo(w * 0.12f, w * 0.7f); lineTo(w * 0.30f, w * 0.88f); lineTo(w * 0.05f, w * 0.95f); close()
+        }
+        drawPath(tip, color)
+        drawLine(color.copy(alpha = 0.55f), Offset(w * 0.2f, w * 0.78f), Offset(w * 0.22f, w * 0.8f), strokeWidth = 1f)
+    }
 }
 
 @Composable
@@ -384,7 +407,6 @@ private fun GraphicToolbar(state: DocumentViewState) {
                     R.string.copy to { state.uno(".uno:Copy") },
                     R.string.rotate to { state.uno(".uno:RotateRight") },
                     R.string.delete to { state.uno(".uno:Delete") },
-                    R.string.more to { state.ribbonTabRequest = TAB_PICTURE },
                 ).forEach { (label, act) ->
                     Box(Modifier.weight(1f).fillMaxSize().clickable { act() }, contentAlignment = Alignment.Center) {
                         Text(stringResource(label), fontSize = 12.sp, maxLines = 1, softWrap = false, color = MaterialTheme.colorScheme.onSurfaceVariant)
