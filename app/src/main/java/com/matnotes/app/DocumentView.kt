@@ -93,6 +93,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     var format by mutableStateOf<Map<String, String>>(emptyMap())
         private set
     var wantKeyboard by mutableStateOf(false)
+    var finding by mutableStateOf(false)
 
     private val cache = object : LruCache<TileKey, Tile>(96 * 1024 * 1024) {
         override fun sizeOf(key: TileKey, value: Tile) = value.bmp.byteCount
@@ -326,7 +327,10 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
                 if (followCursor) scrollToCursor()
             }
             Document.CALLBACK_CURSOR_VISIBLE -> cursorVisible = payload.trim() == "true"
-            Document.CALLBACK_TEXT_SELECTION -> selection = parseRects(payload)
+            Document.CALLBACK_TEXT_SELECTION -> {
+                selection = parseRects(payload)
+                if (finding) selection.firstOrNull()?.let { scrollToRect(it) }
+            }
             Document.CALLBACK_TEXT_SELECTION_START -> selStart = parseRects(payload).firstOrNull()
             Document.CALLBACK_TEXT_SELECTION_END -> selEnd = parseRects(payload).firstOrNull()
             Document.CALLBACK_GRAPHIC_SELECTION -> graphic = parseRects(payload).firstOrNull()
@@ -349,6 +353,16 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     private fun invalidate(r: RectF?) {
         if (r == null) cache.evictAll()
         editVersion++
+    }
+
+    fun scrollToRect(r: RectF) {
+        if (viewSize.height == 0) return
+        val top = pxY(r.top); val bottom = pxY(r.bottom)
+        val margin = 48f * density
+        var dy = 0f
+        if (bottom + margin > viewSize.height) dy = viewSize.height - bottom - margin
+        else if (top - margin < 0f) dy = margin - top
+        if (dy != 0f) offset = clamp(offset.copy(y = offset.y + dy))
     }
 
     fun scrollToCursor() {
@@ -518,14 +532,18 @@ fun DocumentView(state: DocumentViewState, modifier: Modifier = Modifier) {
                 detectTapGestures(
                     onTap = { if (state.editing) state.click(it) },
                     onDoubleTap = { if (state.editing) state.click(it, 2) else state.toggleZoom(it) },
+                    onLongPress = { if (state.editing) state.click(it, 2) },
                 )
             }
             .pointerInput(Unit) {
+                val slop = viewConfiguration.touchSlop
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     state.stopFling()
                     val dragging = state.beginDrag(down.position)
                     val tracker = VelocityTracker()
+                    var panning = false
+                    var accPan = Offset.Zero
                     do {
                         val ev = awaitPointerEvent()
                         if (dragging) {
@@ -536,18 +554,28 @@ fun DocumentView(state: DocumentViewState, modifier: Modifier = Modifier) {
                             val zoomChange = ev.calculateZoom()
                             val pan = ev.calculatePan()
                             val c = ev.calculateCentroid()
-                            if (c.isSpecified && (zoomChange != 1f || pan != Offset.Zero)) {
-                                state.transform(c, pan, zoomChange)
+                            accPan += pan
+                            val multi = ev.changes.count { it.pressed } > 1
+                            // A real finger always jitters a little: only take over (and consume) past touch slop,
+                            // otherwise taps and double-taps never reach the tap detector.
+                            if (!panning && (multi || accPan.getDistance() > slop)) {
+                                panning = true
+                                if (c.isSpecified && !multi) state.transform(c, accPan - pan, 1f)
                             }
-                            ev.changes.forEach {
-                                tracker.addPosition(it.uptimeMillis, it.position)
-                                if (it.positionChanged()) it.consume()
+                            if (panning) {
+                                if (c.isSpecified && (zoomChange != 1f || pan != Offset.Zero)) state.transform(c, pan, zoomChange)
+                                ev.changes.forEach {
+                                    tracker.addPosition(it.uptimeMillis, it.position)
+                                    if (it.positionChanged()) it.consume()
+                                }
+                            } else {
+                                ev.changes.forEach { tracker.addPosition(it.uptimeMillis, it.position) }
                             }
                         }
                     } while (ev.changes.any { it.pressed })
                     if (dragging) {
                         state.endDrag()
-                    } else {
+                    } else if (panning) {
                         val v = tracker.calculateVelocity()
                         if (abs(v.x) + abs(v.y) > 0f) state.flingBy(scope, v.x, v.y)
                     }

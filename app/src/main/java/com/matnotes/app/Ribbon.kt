@@ -75,8 +75,10 @@ private val Styles = listOf(
 private const val TAB_START = 0
 private const val TAB_INSERT = 1
 private const val TAB_LAYOUT = 2
-private const val TAB_VIEW = 3
-private const val TAB_PICTURE = 4
+private const val TAB_REFS = 3
+private const val TAB_REVIEW = 4
+private const val TAB_VIEW = 5
+private const val TAB_PICTURE = 6
 
 private val RowH = 36.dp
 
@@ -91,17 +93,20 @@ fun Ribbon(state: DocumentViewState, onPickImage: () -> Unit) {
     LaunchedEffect(hasGraphic) {
         if (hasGraphic) { tab = TAB_PICTURE; collapsed = false } else if (tab == TAB_PICTURE) tab = TAB_START
     }
+    val tabs = listOf(
+        TAB_START to R.string.tab_start, TAB_INSERT to R.string.tab_insert, TAB_LAYOUT to R.string.tab_layout,
+        TAB_REFS to R.string.tab_refs, TAB_REVIEW to R.string.tab_review, TAB_VIEW to R.string.tab_view,
+    ) + if (hasGraphic) listOf(TAB_PICTURE to R.string.tab_picture) else emptyList()
 
     Surface(tonalElevation = 3.dp) {
         Column(Modifier.fillMaxWidth()) {
             HorizontalDivider()
+            if (state.finding) FindBar(state)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp)) {
-                    TabLabel(stringResource(R.string.tab_start), tab == TAB_START) { tab = TAB_START; collapsed = false }
-                    TabLabel(stringResource(R.string.tab_insert), tab == TAB_INSERT) { tab = TAB_INSERT; collapsed = false }
-                    TabLabel(stringResource(R.string.tab_layout), tab == TAB_LAYOUT) { tab = TAB_LAYOUT; collapsed = false }
-                    TabLabel(stringResource(R.string.tab_view), tab == TAB_VIEW) { tab = TAB_VIEW; collapsed = false }
-                    if (hasGraphic) TabLabel(stringResource(R.string.tab_picture), tab == TAB_PICTURE) { tab = TAB_PICTURE; collapsed = false }
+                    tabs.forEach { (id, label) ->
+                        TabLabel(stringResource(label), tab == id) { tab = id; collapsed = false }
+                    }
                 }
                 Text(
                     if (collapsed) "⌃" else "⌄",
@@ -119,6 +124,8 @@ fun Ribbon(state: DocumentViewState, onPickImage: () -> Unit) {
                         TAB_START -> StartTab(state)
                         TAB_INSERT -> InsertTab(state, onPickImage)
                         TAB_LAYOUT -> LayoutTab(state)
+                        TAB_REFS -> RefsTab(state)
+                        TAB_REVIEW -> ReviewTab(state)
                         TAB_VIEW -> ViewTab(state)
                         else -> PictureTab(state)
                     }
@@ -128,7 +135,7 @@ fun Ribbon(state: DocumentViewState, onPickImage: () -> Unit) {
     }
 }
 
-// ---------------------------------------------------------------- tabs
+// ---------------------------------------------------------------- tabs (Word order and group names)
 
 @Composable
 private fun StartTab(state: DocumentViewState) {
@@ -188,22 +195,31 @@ private fun StartTab(state: DocumentViewState) {
                 IconBtn(on(".uno:CenterPara"), onClick = { state.uno(".uno:CenterPara") }) { Ic { alignIcon(it, 1) } }
                 IconBtn(on(".uno:RightPara"), onClick = { state.uno(".uno:RightPara") }) { Ic { alignIcon(it, 2) } }
                 IconBtn(on(".uno:JustifyPara"), onClick = { state.uno(".uno:JustifyPara") }) { Ic { alignIcon(it, 3) } }
+                IconBtn(on(".uno:ControlCodes"), onClick = { state.uno(".uno:ControlCodes") }) { Glyph("¶", 18) }
             }
         }
     }
-    Group(stringResource(R.string.g_styles), last = true) {
+    Group(stringResource(R.string.g_styles)) {
         Styles.forEach { (label, name) ->
             StyleCard(stringResource(label), name) {
                 state.uno(".uno:StyleApply", args(arg("Style", "string", name), arg("FamilyName", "string", "ParagraphStyles")))
             }
         }
     }
+    Group(stringResource(R.string.g_editing), last = true) {
+        BigBtn(stringResource(R.string.find), onClick = { state.finding = true }) { Glyph("⌕", 26) }
+        BigBtn(stringResource(R.string.select_all), onClick = { state.uno(".uno:SelectAll") }) { Glyph("▤", 24) }
+    }
 }
 
 @Composable
 private fun InsertTab(state: DocumentViewState, onPickImage: () -> Unit) {
-    Group(stringResource(R.string.g_illustrations)) {
-        BigBtn(stringResource(R.string.insert_picture), onClick = onPickImage) { Ic(26.dp) { imageIcon(it) } }
+    var linkDialog by remember { mutableStateOf(false) }
+    if (linkDialog) LinkDialog({ linkDialog = false }) { text, url ->
+        state.uno(".uno:SetHyperlink", args(arg("Hyperlink.Text", "string", text), arg("Hyperlink.URL", "string", url)))
+    }
+    Group(stringResource(R.string.g_pages)) {
+        BigBtn(stringResource(R.string.insert_pagebreak), onClick = { state.uno(".uno:InsertPagebreak") }) { Ic(26.dp) { pageBreakIcon(it) } }
     }
     Group(stringResource(R.string.g_tables)) {
         var open by remember { mutableStateOf(false) }
@@ -230,12 +246,22 @@ private fun InsertTab(state: DocumentViewState, onPickImage: () -> Unit) {
         }
         IconBtn(onClick = { state.uno(".uno:MergeCells") }, wide = true) { Text(stringResource(R.string.merge_cells), fontSize = 12.sp) }
     }
-    Group(stringResource(R.string.g_pages)) {
-        BigBtn(stringResource(R.string.insert_pagebreak), onClick = { state.uno(".uno:InsertPagebreak") }) { Ic(26.dp) { pageBreakIcon(it) } }
+    Group(stringResource(R.string.g_illustrations)) {
+        BigBtn(stringResource(R.string.insert_picture), onClick = onPickImage) { Ic(26.dp) { imageIcon(it) } }
+    }
+    Group(stringResource(R.string.g_links)) {
+        BigBtn(stringResource(R.string.link), onClick = { linkDialog = true }) { Glyph("🔗", 22) }
+    }
+    Group(stringResource(R.string.g_headfoot)) {
+        val hdr = { on: Boolean, cmd: String ->
+            state.uno(cmd, args(arg("PageStyle", "string", "Default Page Style"), arg("On", "boolean", "$on")))
+        }
+        BigBtn(stringResource(R.string.header), onClick = { hdr(true, ".uno:InsertPageHeader") }) { Glyph("▔", 22) }
+        BigBtn(stringResource(R.string.footer), onClick = { hdr(true, ".uno:InsertPageFooter") }) { Glyph("▁", 22) }
         BigBtn(stringResource(R.string.page_number), onClick = { state.uno(".uno:InsertPageNumberField") }) { Glyph("#", 22) }
     }
     Group(stringResource(R.string.g_text), last = true) {
-        BigBtn(stringResource(R.string.footnote), onClick = { state.uno(".uno:InsertFootnote") }) { Glyph("¹", 22) }
+        BigBtn(stringResource(R.string.date_time), onClick = { state.uno(".uno:InsertDateField") }) { Glyph("📅", 20) }
     }
 }
 
@@ -262,7 +288,35 @@ private fun LayoutTab(state: DocumentViewState) {
 }
 
 @Composable
+private fun RefsTab(state: DocumentViewState) {
+    Group(stringResource(R.string.g_footnotes), last = true) {
+        BigBtn(stringResource(R.string.footnote), onClick = { state.uno(".uno:InsertFootnote") }) { Glyph("¹", 22) }
+        BigBtn(stringResource(R.string.endnote), onClick = { state.uno(".uno:InsertEndnote") }) { Glyph("¹¹", 20) }
+    }
+}
+
+@Composable
+private fun ReviewTab(state: DocumentViewState) {
+    val f = state.format
+    val context = androidx.compose.ui.platform.LocalContext.current
+    Group(stringResource(R.string.g_proofing)) {
+        BigBtn(stringResource(R.string.spell_check), onClick = { state.uno(".uno:SpellOnline") }) { Glyph("ABC✓", 14) }
+        BigBtn(stringResource(R.string.word_count), onClick = {
+            android.widget.Toast.makeText(context, f[".uno:StateWordCount"] ?: "–", android.widget.Toast.LENGTH_LONG).show()
+        }) { Glyph("123", 18) }
+    }
+    Group(stringResource(R.string.g_changes), last = true) {
+        BigBtn(stringResource(R.string.track_changes), onClick = { state.uno(".uno:TrackChanges") }) { Glyph("✎", 22) }
+        BigBtn(stringResource(R.string.accept_all), onClick = { state.uno(".uno:AcceptAllTrackedChanges") }) { Glyph("✓", 22) }
+        BigBtn(stringResource(R.string.reject_all), onClick = { state.uno(".uno:RejectAllTrackedChanges") }) { Glyph("✗", 22) }
+    }
+}
+
+@Composable
 private fun ViewTab(state: DocumentViewState) {
+    Group(stringResource(R.string.g_show)) {
+        BigBtn(stringResource(R.string.formatting_marks), width = 72.dp, onClick = { state.uno(".uno:ControlCodes") }) { Glyph("¶", 24) }
+    }
     Group(stringResource(R.string.g_zoom), last = true) {
         BigBtn(stringResource(R.string.zoom_out), onClick = { state.zoomBy(1 / 1.3f) }) { Glyph("−", 26) }
         BigBtn(stringResource(R.string.zoom_fit), onClick = { state.fitWidth() }) { Ic(26.dp) { fitIcon(it) } }
@@ -289,6 +343,54 @@ private fun PictureTab(state: DocumentViewState) {
         BigBtn(stringResource(R.string.send_back), width = 72.dp, onClick = { state.uno(".uno:SendToBack") }) { Glyph("⬓", 22) }
         BigBtn(stringResource(R.string.delete), onClick = { state.uno(".uno:Delete") }) { Glyph("🗑", 20) }
     }
+}
+
+@Composable
+private fun FindBar(state: DocumentViewState) {
+    var text by remember { mutableStateOf("") }
+    fun search(backward: Boolean) {
+        if (text.isEmpty()) return
+        state.uno(
+            ".uno:ExecuteSearch",
+            args(arg("SearchItem.SearchString", "string", text.replace("\\", "\\\\").replace("\"", "\\\"")), arg("SearchItem.Backward", "boolean", "$backward")),
+        )
+    }
+    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        androidx.compose.foundation.text.BasicTextField(
+            value = text,
+            onValueChange = { text = it },
+            singleLine = true,
+            textStyle = androidx.compose.ui.text.TextStyle(color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp),
+            cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+            keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { search(false) }),
+            modifier = Modifier.weight(1f).height(40.dp)
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp)).padding(horizontal = 10.dp, vertical = 9.dp),
+        )
+        IconBtn(onClick = { search(true) }) { Glyph("▲", 14) }
+        IconBtn(onClick = { search(false) }) { Glyph("▼", 14) }
+        IconBtn(onClick = { state.finding = false }) { Glyph("✕", 16) }
+    }
+}
+
+@Composable
+private fun LinkDialog(onDismiss: () -> Unit, onOk: (String, String) -> Unit) {
+    var text by remember { mutableStateOf("") }
+    var url by remember { mutableStateOf("https://") }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.link)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.OutlinedTextField(text, { text = it }, label = { Text(stringResource(R.string.link_text)) }, singleLine = true)
+                androidx.compose.material3.OutlinedTextField(url, { url = it }, label = { Text(stringResource(R.string.link_address)) }, singleLine = true)
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton({ onDismiss(); onOk(text.ifBlank { url }, url) }) { Text(stringResource(R.string.insert_ok)) }
+        },
+        dismissButton = { androidx.compose.material3.TextButton(onDismiss) { Text(stringResource(R.string.cancel)) } },
+    )
 }
 
 // ---------------------------------------------------------------- building blocks
