@@ -29,6 +29,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -51,6 +52,7 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 private const val TILE_PX = 512
+private const val CALLBACK_CONTEXT_CHANGED = 39 // payload "<app> <context>", e.g. "com.sun.star.text.TextDocument DrawText"
 private const val MAX_ZOOM = 6f
 private const val MIN_ZOOM = 0.2f // zoom out well beyond one page width
 private const val BASE_LEVEL = 2 // level = zoom * 2; level 2 == fit-width scale
@@ -98,6 +100,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     private var pendingShapeMove = false
     private var enterTextAfterMove = false
     /** True while the caret is inside the selected text box/shape (taps place the caret, drags do not move it). */
+    /** True while LibreOffice reports the "DrawText" context: the caret is inside a text box / shape. */
     private var inTextBox = false
     private var lastGraphic: RectF? = null
     private var cursorEvents = 0
@@ -259,7 +262,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
         val g = graphic ?: if (inTextBox) lastGraphic else null
         if (g != null && !graphicIsImage && g.contains(twX(at.x), twY(at.y))) {
             if (!inTextBox && count == 1) { enterTextBox(at); return }
-        } else inTextBox = false
+        }
         val x = twX(at.x).roundToInt()
         val y = twY(at.y).roundToInt()
         val s = scale
@@ -272,8 +275,8 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
         }
         wantKeyboard = true
         focusTick++
-        // a tap on the empty part of a text box leaves its edit mode (no caret event): re-enter with the caret at the end
-        if (inTextBox && count == 1) main.postDelayed({ if (cursorEvents == seen && inTextBox && android.os.SystemClock.uptimeMillis() > recoverOffUntil) enterTextBox(at) }, 350)
+        // a tap on the empty part of a text box leaves its edit mode: re-enter with the caret at the end
+        if (inTextBox && count == 1) main.postDelayed({ if (!inTextBox && android.os.SystemClock.uptimeMillis() > recoverOffUntil) enterTextBox(at) }, 350)
     }
 
     /** Double click inside a text box. The button-up of a double click clears the word selection there, so send none. */
@@ -296,7 +299,6 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
             mouse(Document.MOUSE_EVENT_BUTTON_DOWN, x, y, 2, s)
             mouse(Document.MOUSE_EVENT_BUTTON_UP, x, y, 2, s)
         }
-        inTextBox = true
         main.postDelayed({ edit { uno(".uno:GoToEndOfDoc") } }, 250)
         wantKeyboard = true
         focusTick++
@@ -342,7 +344,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
         if (enterTextAfterMove) {
             enterTextAfterMove = false
             // a text box is useless until the caret is inside it: double-click its middle to start typing
-            main.postDelayed({ inTextBox = true; click(Offset(pxX(tx), pxY(ty)), 2) }, 700)
+            main.postDelayed({ if (!inTextBox) click(Offset(pxX(tx), pxY(ty)), 2) }, 700)
         }
     }
 
@@ -350,11 +352,9 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     fun longPress(at: Offset) {
         val box = graphic ?: if (inTextBox) lastGraphic else null
         if (box != null && !graphicIsImage && box.contains(twX(at.x), twY(at.y))) {
-            // inside a text box: put the caret there, then select the word
-            inTextBox = true
+            // inside a text box: a double click enters it (if needed) and selects the word
             recoverOffUntil = android.os.SystemClock.uptimeMillis() + 1500
-            click(at, 1)
-            main.postDelayed({ selectWordAt(at) }, 380)
+            selectWordAt(at)
             return
         }
         click(at, 1)
@@ -432,11 +432,23 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
             if (ds < hit && ds < de) { selStart?.let { startDrag(Drag.SelStart, p, Offset(it.left, it.bottom), it.height()); return true } }
             if (de < hit) { selEnd?.let { startDrag(Drag.SelEnd, p, Offset(it.right, it.bottom), it.height()); return true } }
         }
+        // text box in edit mode: dragging inside selects text, the move grip below the box moves it
+        moveGripCenter()?.let { c ->
+            if (dist(p, c) < 30f * density) {
+                val g = graphic!!
+                val ctr = Offset((g.left + g.right) / 2f, (g.top + g.bottom) / 2f)
+                startDrag(Drag.GraphicBody, p, ctr, 0f)
+                markDirty()
+                val s = scale
+                edit { setGraphicSelection(Document.SET_GRAPHIC_SELECTION_START, ctr.x.roundToInt(), ctr.y.roundToInt(), s) }
+                return true
+            }
+        }
         graphic?.let { g ->
             val handles = graphicHandles(g)
             // small images: shrink the hit radius so edge handles do not steal the corners
             val minSidePx = min(g.width(), g.height()) * scale
-            val radius = min(hit, max(minSidePx * 0.35f, 10f * density)).let { if (inTextBox && !graphicIsImage) min(it, 16f * density) else it }
+            val radius = min(hit, max(minSidePx * 0.35f, 10f * density)).let { if (inTextBox && !graphicIsImage) min(it, 12f * density) else it }
             val corners = listOf(0, 2, 5, 7)
             fun d(i: Int) = dist(p, Offset(pxX(handles[i].x), pxY(handles[i].y)))
             val idx = corners.minByOrNull(::d)?.takeIf { d(it) < radius }
@@ -452,10 +464,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
                 edit { setGraphicSelection(Document.SET_GRAPHIC_SELECTION_START, h.x.roundToInt(), h.y.roundToInt(), s) }
                 return true
             }
-            // like Word: while the caret is in a text box only its border moves it, so dragging inside selects text
-            val band = 9f * density
-            val onBorder = min(min(p.x - pxX(g.left), pxX(g.right) - p.x), min(p.y - pxY(g.top), pxY(g.bottom) - p.y)) < band
-            if (g.contains(twX(p.x), twY(p.y)) && (!inTextBox || graphicIsImage || onBorder)) {
+            if (g.contains(twX(p.x), twY(p.y)) && !(inTextBox && !graphicIsImage)) {
                 val t = Offset(twX(p.x), twY(p.y))
                 startDrag(Drag.GraphicBody, p, t, 0f)
                 markDirty()
@@ -465,6 +474,13 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
             }
         }
         return false
+    }
+
+    /** View-pixel centre of the move grip shown under a text box in edit mode. */
+    private fun moveGripCenter(): Offset? {
+        val g = graphic ?: return null
+        if (!inTextBox || graphicIsImage) return null
+        return Offset(pxX((g.left + g.right) / 2f), pxY(g.bottom) + 26f * density)
     }
 
     private fun graphicHandles(g: RectF): List<Offset> {
@@ -541,7 +557,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
         val delta = cur - dragStartTw
         when (kind) {
             Drag.GraphicBody -> {
-                val pt = dragStartTw + delta
+                val pt = dragHandleTw + delta
                 preview = null
                 val s = scale
                 edit { setGraphicSelection(Document.SET_GRAPHIC_SELECTION_END, pt.x.roundToInt(), pt.y.roundToInt(), s) }
@@ -574,6 +590,11 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
                 cursorEvents++
                 if (android.os.SystemClock.uptimeMillis() - lastEditAt < 1500) { markStale(nearCursor()); scheduleSettle() }
                 if (followCursor) scrollToCursor()
+            }
+            CALLBACK_CONTEXT_CHANGED -> {
+                val was = inTextBox
+                inTextBox = payload.trim().endsWith("DrawText")
+                if (was && !inTextBox) { selHoldUntil = 0L }
             }
             Document.CALLBACK_CURSOR_VISIBLE -> cursorVisible = payload.trim() == "true"
             Document.CALLBACK_GRAPHIC_VIEW_SELECTION, Document.CALLBACK_REDLINE_TABLE_ENTRY_MODIFIED -> scheduleSettle()
@@ -740,6 +761,19 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
                 val c = Offset(pxX(it.x), pxY(it.y))
                 drawCircle(Color.White, hr * 0.8f, c)
                 drawCircle(AccentColor, hr * 0.8f, c, style = Stroke(2f * density))
+            }
+        }
+        moveGripCenter()?.let { c ->
+            val r = 15f * density
+            drawCircle(AccentColor, r, c)
+            val a = 8f * density; val sw = 1.8f * density
+            drawLine(Color.White, Offset(c.x - a, c.y), Offset(c.x + a, c.y), sw, StrokeCap.Round)
+            drawLine(Color.White, Offset(c.x, c.y - a), Offset(c.x, c.y + a), sw, StrokeCap.Round)
+            for (sgn in listOf(-1f, 1f)) {
+                drawLine(Color.White, Offset(c.x + sgn * a, c.y), Offset(c.x + sgn * (a - 3f * density), c.y - 3f * density), sw, StrokeCap.Round)
+                drawLine(Color.White, Offset(c.x + sgn * a, c.y), Offset(c.x + sgn * (a - 3f * density), c.y + 3f * density), sw, StrokeCap.Round)
+                drawLine(Color.White, Offset(c.x, c.y + sgn * a), Offset(c.x - 3f * density, c.y + sgn * (a - 3f * density)), sw, StrokeCap.Round)
+                drawLine(Color.White, Offset(c.x, c.y + sgn * a), Offset(c.x + 3f * density, c.y + sgn * (a - 3f * density)), sw, StrokeCap.Round)
             }
         }
         preview?.let { r ->
