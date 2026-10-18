@@ -2,7 +2,7 @@
 
 > Instruction for Claude: read this whole file first. Then read every file under "Must read before any change". Do not modify anything until you have fully understood the project. Keep this file updated as you work (see "Maintenance rules").
 
-Last updated: 2026-10-17
+Last updated: 2026-10-18
 
 ## 1. What this project is
 MatNotes: Android app (phone + tablet, arm64) to open, edit and export `.docx` with a Word-like mobile UI. Priority 1: layout fidelity. Engine: LibreOfficeKit (prebuilt libs from the official TDF LibreOffice Android APK). Local only, no accounts, DE/EN. Repo `corixien/matnotes` (public), push straight to `main`, no PRs. Stage: working app, installed on the owner's phone; feature work and polishing.
@@ -36,7 +36,7 @@ Needs a full JDK (the project uses a Temurin 21 in `~/.local/jdks`, configured t
 - Never commit secrets, keystores or private sample docs.
 
 ## 6. Current state
-Branch `main`. Working: open/new/save/save-as/overwrite, share as docx/odt/pdf (system sheet or e-mail attachment), print, ribbon with Home/Insert/Layout/References/Review/View and contextual Picture/Shape tab, shapes/text box/symbols, page setup, find/replace, fast scroller, Documents/MatNotes list. Open ideas: release pipeline with signed APK, table tab, comments, table of contents, more shape formatting, tablet layout polish.
+Branch `main`. Working: open/new/save/save-as/overwrite, share as docx/odt/pdf (system sheet or e-mail attachment), print, ribbon with Home/Insert/Layout/References/Review/View and contextual Picture/Shape tab, shapes/text box/symbols, page setup, find/replace, fast scroller, Documents/MatNotes list. Tables: LO reports the caret table's borders via callback 44 (`TableGeom`), used for the "+" markers and the Table tab. Text boxes follow LO's context callback 39 (`DrawText`), see `AGENTS.md`. Debug adb hooks incl. `dtap`, `key`, `mouse`, `dump` exist for scripted device tests. Open ideas: release pipeline with signed APK, table tab, comments, table of contents, more shape formatting, tablet layout polish.
 
 ## Maintenance rules
 Update this file when structure, commands, invariants or state change. Bump "Last updated".
