@@ -97,6 +97,12 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
         private set
     private var pendingShapeMove = false
     private var enterTextAfterMove = false
+    /** True while the caret is inside the selected text box/shape (taps place the caret, drags do not move it). */
+    private var inTextBox = false
+    private var lastGraphic: RectF? = null
+    private var cursorEvents = 0
+    private var selHoldUntil = 0L
+    private var recoverOffUntil = 0L
     var format by mutableStateOf<Map<String, String>>(emptyMap())
         private set
     var wantKeyboard by mutableStateOf(false)
@@ -250,19 +256,53 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     }
 
     fun click(at: Offset, count: Int = 1) {
+        val g = graphic ?: if (inTextBox) lastGraphic else null
+        if (g != null && !graphicIsImage && g.contains(twX(at.x), twY(at.y))) {
+            if (!inTextBox && count == 1) { enterTextBox(at); return }
+        } else inTextBox = false
         val x = twX(at.x).roundToInt()
         val y = twY(at.y).roundToInt()
         val s = scale
         followCursor = true
+        val seen = cursorEvents
+        if (count == 1) { selHoldUntil = 0L; selection = emptyList() }
         edit {
             mouse(Document.MOUSE_EVENT_BUTTON_DOWN, x, y, count, s)
             mouse(Document.MOUSE_EVENT_BUTTON_UP, x, y, count, s)
         }
         wantKeyboard = true
         focusTick++
+        // a tap on the empty part of a text box leaves its edit mode (no caret event): re-enter with the caret at the end
+        if (inTextBox && count == 1) main.postDelayed({ if (cursorEvents == seen && inTextBox && android.os.SystemClock.uptimeMillis() > recoverOffUntil) enterTextBox(at) }, 350)
     }
 
-    fun typeText(t: String) { markDirty(); followCursor = true; edit { type(t) } }
+    /** Double click inside a text box. The button-up of a double click clears the word selection there, so send none. */
+    private fun selectWordAt(at: Offset) {
+        val x = twX(at.x).roundToInt()
+        val y = twY(at.y).roundToInt()
+        val s = scale
+        selHoldUntil = android.os.SystemClock.uptimeMillis() + 1500
+        edit { mouse(Document.MOUSE_EVENT_BUTTON_DOWN, x, y, 2, s) }
+        main.postDelayed({ edit { mouse(Document.MOUSE_EVENT_BUTTON_UP, x, y, 1, s) } }, 120)
+    }
+
+    /** First tap into a selected text box: enter it with the caret after the last character. */
+    private fun enterTextBox(at: Offset) {
+        val x = twX(at.x).roundToInt()
+        val y = twY(at.y).roundToInt()
+        val s = scale
+        followCursor = true
+        edit {
+            mouse(Document.MOUSE_EVENT_BUTTON_DOWN, x, y, 2, s)
+            mouse(Document.MOUSE_EVENT_BUTTON_UP, x, y, 2, s)
+        }
+        inTextBox = true
+        main.postDelayed({ edit { uno(".uno:GoToEndOfDoc") } }, 250)
+        wantKeyboard = true
+        focusTick++
+    }
+
+    fun typeText(t: String) { selHoldUntil = 0L; markDirty(); followCursor = true; edit { type(t) } }
     fun pressKey(code: Int) { if (code == Keys.BACKSPACE || code == Keys.DELETE || code == Keys.RETURN) markDirty(); followCursor = true; edit { pressKey(code) } }
     fun uno(cmd: String, args: String = "") { if (cmd != ".uno:Copy") markDirty(); edit { uno(cmd, args) } }
     fun markDirty() { dirty = true }
@@ -302,12 +342,21 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
         if (enterTextAfterMove) {
             enterTextAfterMove = false
             // a text box is useless until the caret is inside it: double-click its middle to start typing
-            main.postDelayed({ click(Offset(pxX(tx), pxY(ty)), 2) }, 700)
+            main.postDelayed({ inTextBox = true; click(Offset(pxX(tx), pxY(ty)), 2) }, 700)
         }
     }
 
     /** Long press: select an image/shape under the finger, otherwise select the word (double click). */
     fun longPress(at: Offset) {
+        val box = graphic ?: if (inTextBox) lastGraphic else null
+        if (box != null && !graphicIsImage && box.contains(twX(at.x), twY(at.y))) {
+            // inside a text box: put the caret there, then select the word
+            inTextBox = true
+            recoverOffUntil = android.os.SystemClock.uptimeMillis() + 1500
+            click(at, 1)
+            main.postDelayed({ selectWordAt(at) }, 380)
+            return
+        }
         click(at, 1)
         main.postDelayed({ if (graphic == null && selection.isEmpty()) click(at, 2) }, 380)
     }
@@ -376,19 +425,18 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     fun beginDrag(p: Offset): Boolean {
         if (!editing) return false
         val hit = 28f * density
-        selStart?.let {
-            val c = Offset(pxX(it.left), pxY(it.bottom) + 10 * density)
-            if (dist(p, c) < hit && selection.isNotEmpty()) { startDrag(Drag.SelStart, p, Offset(it.left, it.bottom), it.height()); return true }
-        }
-        selEnd?.let {
-            val c = Offset(pxX(it.right), pxY(it.bottom) + 10 * density)
-            if (dist(p, c) < hit && selection.isNotEmpty()) { startDrag(Drag.SelEnd, p, Offset(it.right, it.bottom), it.height()); return true }
+        if (selection.isNotEmpty()) {
+            // both handles can overlap on a short selection: take the nearer one
+            val ds = selStart?.let { dist(p, Offset(pxX(it.left), pxY(it.bottom) + 10 * density)) } ?: Float.MAX_VALUE
+            val de = selEnd?.let { dist(p, Offset(pxX(it.right), pxY(it.bottom) + 10 * density)) } ?: Float.MAX_VALUE
+            if (ds < hit && ds < de) { selStart?.let { startDrag(Drag.SelStart, p, Offset(it.left, it.bottom), it.height()); return true } }
+            if (de < hit) { selEnd?.let { startDrag(Drag.SelEnd, p, Offset(it.right, it.bottom), it.height()); return true } }
         }
         graphic?.let { g ->
             val handles = graphicHandles(g)
             // small images: shrink the hit radius so edge handles do not steal the corners
             val minSidePx = min(g.width(), g.height()) * scale
-            val radius = min(hit, max(minSidePx * 0.35f, 10f * density))
+            val radius = min(hit, max(minSidePx * 0.35f, 10f * density)).let { if (inTextBox && !graphicIsImage) min(it, 16f * density) else it }
             val corners = listOf(0, 2, 5, 7)
             fun d(i: Int) = dist(p, Offset(pxX(handles[i].x), pxY(handles[i].y)))
             val idx = corners.minByOrNull(::d)?.takeIf { d(it) < radius }
@@ -404,7 +452,10 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
                 edit { setGraphicSelection(Document.SET_GRAPHIC_SELECTION_START, h.x.roundToInt(), h.y.roundToInt(), s) }
                 return true
             }
-            if (g.contains(twX(p.x), twY(p.y))) {
+            // like Word: while the caret is in a text box only its border moves it, so dragging inside selects text
+            val band = 9f * density
+            val onBorder = min(min(p.x - pxX(g.left), pxX(g.right) - p.x), min(p.y - pxY(g.top), pxY(g.bottom) - p.y)) < band
+            if (g.contains(twX(p.x), twY(p.y)) && (!inTextBox || graphicIsImage || onBorder)) {
                 val t = Offset(twX(p.x), twY(p.y))
                 startDrag(Drag.GraphicBody, p, t, 0f)
                 markDirty()
@@ -520,13 +571,20 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
             Document.CALLBACK_DOCUMENT_SIZE_CHANGED -> { layout = doc.layout; tick++ }
             Document.CALLBACK_INVALIDATE_VISIBLE_CURSOR -> {
                 cursor = parseRects(payload).firstOrNull()
+                cursorEvents++
                 if (android.os.SystemClock.uptimeMillis() - lastEditAt < 1500) { markStale(nearCursor()); scheduleSettle() }
                 if (followCursor) scrollToCursor()
             }
             Document.CALLBACK_CURSOR_VISIBLE -> cursorVisible = payload.trim() == "true"
             Document.CALLBACK_GRAPHIC_VIEW_SELECTION, Document.CALLBACK_REDLINE_TABLE_ENTRY_MODIFIED -> scheduleSettle()
             Document.CALLBACK_TEXT_SELECTION -> {
-                selection = parseRects(payload)
+                val rects = parseRects(payload)
+                val now = android.os.SystemClock.uptimeMillis()
+                // inside a text box LibreOffice reports the new word selection and then an empty one although the
+                // selection is still active: keep showing it for a moment after a selection gesture
+                if (rects.isEmpty() && inTextBox && selection.isNotEmpty() && now < selHoldUntil) return
+                if (rects.isNotEmpty() && inTextBox) selHoldUntil = now + 1200
+                selection = rects
                 if (finding) selection.firstOrNull()?.let { scrollToRect(it) }
             }
             Document.CALLBACK_TEXT_SELECTION_START -> selStart = parseRects(payload).firstOrNull()
@@ -534,6 +592,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
             Document.CALLBACK_GRAPHIC_SELECTION -> {
                 val r = parseRects(payload).firstOrNull()
                 graphic = r
+                if (r != null) lastGraphic = r
                 graphicIsImage = Regex("\"isWriterGraphic\"\\s*:\\s*true").containsMatchIn(payload)
                 if (pendingShapeMove && r != null) {
                     pendingShapeMove = false
@@ -692,7 +751,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
             drawRect(AccentColor, Offset(pxX(r.left), pxY(r.top)), Size(r.width() * zb, r.height() * zb), style = Stroke(2f * density))
         }
         val c = cursor
-        if (c != null && cursorVisible && blinkOn && selection.isEmpty() && graphic == null) {
+        if (c != null && cursorVisible && blinkOn && selection.isEmpty() && (graphic == null || inTextBox)) {
             drawRect(
                 CursorColor,
                 Offset(pxX(c.left).roundToInt().toFloat() + 1f, pxY(c.top)),
