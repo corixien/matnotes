@@ -7,8 +7,8 @@ Android app (phone + tablet) to open, edit and export Word documents (`.docx`) w
 - **Open:** file picker, "Open with", share target, recent files, `Documents/MatNotes` list on the start screen. New blank document with Word defaults (A4, Calibri 11 pt, 2.54 cm margins, 8 pt paragraph spacing).
 - **Edit:** typing (IME + hardware keyboard + Word shortcuts), selection handles, floating cut/copy/paste bar, find and replace, undo/redo, format painter.
 - **Ribbon** in Word order (Home, Insert, Layout, References, Review, View, contextual Picture/Shape tab) with grouped icon buttons, editable font and size boxes, colour pickers, styles gallery, change case, paragraph shading, lists, alignment, line spacing.
-- **Tables:** "+" buttons on the table borders (above/left of the table) insert a column/row exactly there, a floating bar adds rows/columns around the caret cell or deletes them, and a contextual Table tab offers merge/split, cell colour, fit/even rows and columns, vertical alignment, delete table.
-- **Text boxes:** tap enters with the caret at the end (or at the tapped spot), double tap selects a word, hold and drag moves the box.
+- **Tables:** speech-bubble buttons at the table: "+" at every column/row border inserts exactly there, "-" on each column/row deletes it; drag a border line to change column width or row height; contextual Table tab with merge/split, cell colour, fit/even rows and columns, vertical alignment, border presets (all, outside, inside, none, single edges; line style, width, colour), 8 table looks (grid, blue, green, orange, striped, minimal, dark, ...) and delete table.
+- **Text boxes:** tap enters with the caret at the end (or at the tapped spot), double tap selects a word, hold and drag moves the box. Pages sit in a grey margin, so zooming out works on every side.
 - **Insert:** pictures, tables (rows/columns/merge), shapes (about 30, inserted in the middle of the view), text box, symbols, link, header/footer, page number, date, footnote/endnote, page and column break.
 - **Pictures and shapes:** drag, resize (corners keep the aspect ratio, edges resize one side), rotate, flip, wrap modes (inline, square, tight, top and bottom, in front, behind), anchoring, arrange, fill and outline colour for shapes.
 - **Page setup:** margins (presets and custom), orientation, size (A3, A4, A5, B5, Letter, Legal).
@@ -24,7 +24,7 @@ LibreOffice rewrites the whole file on save, so complex content (SmartArt, chart
 |---|---|
 | Start | multilevel lists, sort, borders, font dialog (character spacing), advanced find |
 | Insert | **SmartArt** (LibreOffice cannot create it; existing SmartArt is displayed), charts (insert command has no effect in LibreOffice for Android), WordArt, equations, bookmarks, cross-references, comments, cover page |
-| Tables | border styles, table styles, dragging a column/row border to resize |
+| Tables | per-cell borders, Word's built-in table styles, dragging the outer edges; borders and looks reload the document (undo history resets) |
 | Layout | columns, hyphenation, line numbers, watermark, page colour |
 | References | table of contents, captions, citations, index |
 | Review | comments, thesaurus, translate, protect |
