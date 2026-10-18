@@ -206,4 +206,17 @@
     <string name="g_rows_cols">Zeilen und Spalten</string>
     <string name="g_cells">Zellen</string>
     <string name="g_table_delete">Löschen</string>
+    <string name="tbl_cell_color">Zellfarbe</string>
+    <string name="tbl_split_cols">In Spalten teilen</string>
+    <string name="tbl_split_rows">In Zeilen teilen</string>
+    <string name="tbl_split">Zelle teilen</string>
+    <string name="tbl_autofit">Spaltenbreite anpassen</string>
+    <string name="tbl_even_rows">Zeilen angleichen</string>
+    <string name="tbl_even_cols">Spalten angleichen</string>
+    <string name="tbl_fit_rows">Zeilenhöhe anpassen</string>
+    <string name="tbl_valign_top">Oben</string>
+    <string name="tbl_valign_center">Mitte</string>
+    <string name="tbl_valign_bottom">Unten</string>
+    <string name="g_cell_size">Zellgröße</string>
+    <string name="g_cell_align">Zellausrichtung</string>
 </resources>

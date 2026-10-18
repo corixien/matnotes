@@ -206,4 +206,17 @@
     <string name="g_rows_cols">Rows and columns</string>
     <string name="g_cells">Cells</string>
     <string name="g_table_delete">Delete</string>
+    <string name="tbl_cell_color">Cell color</string>
+    <string name="tbl_split_cols">Split into columns</string>
+    <string name="tbl_split_rows">Split into rows</string>
+    <string name="tbl_split">Split cell</string>
+    <string name="tbl_autofit">Fit column width</string>
+    <string name="tbl_even_rows">Even rows</string>
+    <string name="tbl_even_cols">Even columns</string>
+    <string name="tbl_fit_rows">Fit row height</string>
+    <string name="tbl_valign_top">Top</string>
+    <string name="tbl_valign_center">Middle</string>
+    <string name="tbl_valign_bottom">Bottom</string>
+    <string name="g_cell_size">Cell size</string>
+    <string name="g_cell_align">Cell alignment</string>
 </resources>

@@ -460,7 +460,28 @@ private fun TableTab(state: DocumentViewState) {
     }
     Group(stringResource(R.string.g_cells)) {
         BigBtn(stringResource(R.string.merge_cells), width = 76.dp, onClick = { state.uno(".uno:MergeCells") }) { Glyph("⊞", 22) }
+        MenuBigBtn(stringResource(R.string.tbl_split), { Glyph("⊟", 22) }) { close ->
+            DropdownMenuItem({ Text(stringResource(R.string.tbl_split_cols)) }, {
+                close(); state.uno(".uno:SplitCell", args(arg("Amount", "long", "2"), arg("HorizontalFlag", "boolean", "false")))
+            })
+            DropdownMenuItem({ Text(stringResource(R.string.tbl_split_rows)) }, {
+                close(); state.uno(".uno:SplitCell", args(arg("Amount", "long", "2"), arg("HorizontalFlag", "boolean", "true")))
+            })
+        }
         BigBtn(stringResource(R.string.tbl_select_table), width = 76.dp, onClick = { state.uno(".uno:SelectTable") }) { Glyph("▦", 22) }
+        ColorBtn(isHighlight = true, allowNone = false) { state.uno(".uno:BackgroundColor", args(arg("BackgroundColor", "long", "$it"))) }
+        Text(stringResource(R.string.tbl_cell_color), fontSize = 11.sp, modifier = Modifier.padding(end = 6.dp))
+    }
+    Group(stringResource(R.string.g_cell_size)) {
+        BigBtn(stringResource(R.string.tbl_autofit), width = 84.dp, onClick = { state.uno(".uno:SetOptimalColumnWidth") }) { Glyph("↔", 22) }
+        BigBtn(stringResource(R.string.tbl_fit_rows), width = 84.dp, onClick = { state.uno(".uno:SetOptimalRowHeight") }) { Glyph("↕", 22) }
+        BigBtn(stringResource(R.string.tbl_even_cols), width = 84.dp, onClick = { state.uno(".uno:DistributeColumns") }) { Glyph("⫼", 20) }
+        BigBtn(stringResource(R.string.tbl_even_rows), width = 84.dp, onClick = { state.uno(".uno:DistributeRows") }) { Glyph("≡", 22) }
+    }
+    Group(stringResource(R.string.g_cell_align)) {
+        BigBtn(stringResource(R.string.tbl_valign_top), width = 64.dp, onClick = { state.uno(".uno:CellVertTop") }) { Glyph("⤒", 20) }
+        BigBtn(stringResource(R.string.tbl_valign_center), width = 64.dp, onClick = { state.uno(".uno:CellVertCenter") }) { Glyph("↕", 20) }
+        BigBtn(stringResource(R.string.tbl_valign_bottom), width = 64.dp, onClick = { state.uno(".uno:CellVertBottom") }) { Glyph("⤓", 20) }
     }
     Group(stringResource(R.string.g_table_delete)) {
         BigBtn(stringResource(R.string.tbl_delete_row), width = 76.dp, onClick = { state.uno(".uno:DeleteRows") }) { Glyph("−≡", 18) }
