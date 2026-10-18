@@ -52,6 +52,7 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 private const val TILE_PX = 512
+private const val CALLBACK_TABLE_GEOMETRY = 44 // JSON: inner column/row borders of the table under the caret ("{ }" outside tables)
 private const val CALLBACK_CONTEXT_CHANGED = 39 // payload "<app> <context>", e.g. "com.sun.star.text.TextDocument DrawText"
 private const val MAX_ZOOM = 6f
 private const val MIN_ZOOM = 0.2f // zoom out well beyond one page width
@@ -64,6 +65,12 @@ private val CursorColor = Color(0xFF1B1B1B)
 private data class TileKey(val page: Int, val level: Int, val tx: Int, val ty: Int)
 
 private class Tile(val bmp: Bitmap, @Volatile var stale: Boolean = false)
+
+/** Borders of the table under the caret in document twips, outer edges included (so n cells have n + 1 values). */
+class TableGeom(val colX: List<Float>, val rowY: List<Float>)
+
+/** A "+" button on a table border: [column] true = insert a column at border [k], else a row. */
+class TableMarker(val center: Offset, val column: Boolean, val k: Int)
 
 private enum class Drag { SelStart, SelEnd, GraphicBody, GraphicHandle }
 
@@ -81,6 +88,9 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     var editing by mutableStateOf(false)
     var dirty by mutableStateOf(false)
     var cursor by mutableStateOf<RectF?>(null)
+    /** Geometry of the table the caret is in (null outside tables); drives the "+" markers and the table bar. */
+    var table by mutableStateOf<TableGeom?>(null)
+    var inTable by mutableStateOf(false)
         private set
     var cursorVisible by mutableStateOf(true)
         private set
@@ -265,7 +275,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     }
 
     fun dumpState() {
-        android.util.Log.d("MatNotesDump", "box_px=${graphic?.let { "${pxX(it.left).toInt()},${pxY(it.top).toInt() + 262} ${pxX(it.right).toInt()},${pxY(it.bottom).toInt() + 262}" }} inTB=$inTextBox graphic=$graphic img=$graphicIsImage cursor=$cursor vis=$cursorVisible sel=${selection.size} selStart=$selStart hold=${selHoldUntil > 0}")
+        android.util.Log.d("MatNotesDump", "inTable=$inTable table=${table?.colX}/${table?.rowY} markers=${tableMarkers().size} editing=$editing box_px=${graphic?.let { "${pxX(it.left).toInt()},${pxY(it.top).toInt() + 262} ${pxX(it.right).toInt()},${pxY(it.bottom).toInt() + 262}" }} inTB=$inTextBox graphic=$graphic img=$graphicIsImage cursor=$cursor vis=$cursorVisible sel=${selection.size} selStart=$selStart hold=${selHoldUntil > 0}")
     }
 
     private fun clearTextSelection() {
@@ -276,6 +286,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     }
 
     fun click(at: Offset, count: Int = 1) {
+        if (count == 1) tableMarkerAt(at)?.let { insertAtBorder(it.column, it.k); return }
         val g = graphic ?: if (inTextBox) lastGraphic else null
         if (g != null && !graphicIsImage && g.contains(twX(at.x), twY(at.y))) {
             if (!inTextBox && count == 1) { enterTextBox(at); return }
@@ -650,7 +661,10 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
                 if (android.os.SystemClock.uptimeMillis() - lastEditAt < 1500) { markStale(nearCursor()); scheduleSettle() }
                 if (followCursor) scrollToCursor()
             }
+            CALLBACK_TABLE_GEOMETRY -> table = parseTable(payload)
             CALLBACK_CONTEXT_CHANGED -> {
+                // context "Text" and "Table" arrive back to back after the geometry: the geometry callback alone owns `table`
+                inTable = payload.trim().endsWith("Table")
                 val was = inTextBox
                 inTextBox = payload.trim().endsWith("DrawText")
                 if (was && !inTextBox) clearTextSelection()
@@ -688,6 +702,84 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
             }
         }
         tick++
+    }
+
+    private fun parseTable(payload: String): TableGeom? = try {
+        val o = org.json.JSONObject(payload)
+        fun axis(name: String): List<Float>? {
+            val a = o.optJSONObject(name) ?: return null
+            val off = a.optDouble("tableOffset", 0.0).toFloat()
+            val e = a.optJSONArray("entries") ?: return null
+            val lo = a.optDouble("left", 0.0).toFloat()
+            val hi = a.optDouble("right", 0.0).toFloat()
+            return listOf(off + lo) + (0 until e.length()).map { off + e.getJSONObject(it).getDouble("position").toFloat() } + listOf(off + hi)
+        }
+        val c = axis("columns"); val r = axis("rows")
+        if (c != null && r != null) TableGeom(c, r) else null
+    } catch (e: Exception) { null }
+
+    /** Bounds of the caret's table in view pixels. */
+    fun tableBounds(): RectF? {
+        val t = table ?: return null
+        return RectF(pxX(t.colX.first()), pxY(t.rowY.first()), pxX(t.colX.last()), pxY(t.rowY.last()))
+    }
+
+    /** "+" buttons on the borders: above the table for columns, left of it for rows. Crowded ones are left out. */
+    fun tableMarkers(): List<TableMarker> {
+        val t = table ?: return emptyList()
+        if (!editing) return emptyList()
+        val gap = 18f * density
+        val minSpacing = 2.4f * 9f * density
+        val top = pxY(t.rowY.first()); val left = pxX(t.colX.first())
+        val out = ArrayList<TableMarker>()
+        var last = -1e9f
+        t.colX.forEachIndexed { k, x ->
+            val px = pxX(x)
+            if (px - last >= minSpacing || k == t.colX.lastIndex) {
+                // the outer edge always gets a marker: it replaces a crowded neighbour
+                if (px - last < minSpacing && out.isNotEmpty()) out.removeAt(out.lastIndex)
+                out += TableMarker(Offset(px, top - gap), true, k); last = px
+            }
+        }
+        last = -1e9f
+        t.rowY.forEachIndexed { k, y ->
+            val py = pxY(y)
+            if (py - last >= minSpacing || k == t.rowY.lastIndex) {
+                if (py - last < minSpacing && out.lastOrNull()?.column == false) out.removeAt(out.lastIndex)
+                out += TableMarker(Offset(left - gap, py), false, k); last = py
+            }
+        }
+        return out
+    }
+
+    private fun tableMarkerAt(at: Offset): TableMarker? =
+        tableMarkers().minByOrNull { dist(at, it.center) }?.takeIf { dist(at, it.center) < 20f * density }
+
+    /** Inserts a column/row at border [k]: put the caret in the neighbouring cell, then use LibreOffice's command. */
+    fun insertAtBorder(column: Boolean, k: Int) {
+        val t = table ?: return
+        val cur = cursor
+        val sc = scale
+        markDirty()
+        if (column) {
+            val n = t.colX.size - 1
+            val col = if (k == 0) 0 else k - 1
+            val x = ((t.colX[col] + t.colX[col + 1]) / 2f).roundToInt()
+            val y = (cur?.let { (it.top + it.bottom) / 2f } ?: (t.rowY[0] + 150f)).roundToInt()
+            edit {
+                mouse(Document.MOUSE_EVENT_BUTTON_DOWN, x, y, 1, sc); mouse(Document.MOUSE_EVENT_BUTTON_UP, x, y, 1, sc)
+                uno(if (k == 0) ".uno:InsertColumnsBefore" else ".uno:InsertColumnsAfter")
+            }
+            if (n < 0) return
+        } else {
+            val row = if (k == 0) 0 else k - 1
+            val y = ((t.rowY[row] + t.rowY[row + 1]) / 2f).roundToInt()
+            val x = (cur?.left ?: (t.colX[0] + 150f)).roundToInt()
+            edit {
+                mouse(Document.MOUSE_EVENT_BUTTON_DOWN, x, y, 1, sc); mouse(Document.MOUSE_EVENT_BUTTON_UP, x, y, 1, sc)
+                uno(if (k == 0) ".uno:InsertRowsBefore" else ".uno:InsertRowsAfter")
+            }
+        }
     }
 
     private fun parseRects(s: String): List<RectF> {
@@ -824,6 +916,14 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
                 drawCircle(Color.White, hr * 0.8f, c)
                 drawCircle(AccentColor, hr * 0.8f, c, style = Stroke(2f * density))
             }
+        }
+        for (m in tableMarkers()) {
+            val r = 9f * density
+            drawCircle(Color.White, r + 1.5f * density, m.center)
+            drawCircle(AccentColor, r, m.center)
+            val a = 4.5f * density; val sw = 2f * density
+            drawLine(Color.White, Offset(m.center.x - a, m.center.y), Offset(m.center.x + a, m.center.y), sw, StrokeCap.Round)
+            drawLine(Color.White, Offset(m.center.x, m.center.y - a), Offset(m.center.x, m.center.y + a), sw, StrokeCap.Round)
         }
         preview?.let { r ->
             drawRect(

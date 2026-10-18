@@ -193,4 +193,17 @@
     <string name="shape_document">Document</string>
     <string name="shape_callout">Speech bubble</string>
     <string name="shape_callout_round">Round speech bubble</string>
+    <string name="tab_table">Table</string>
+    <string name="tbl_row_above">+ Row ↑</string>
+    <string name="tbl_row_below">+ Row ↓</string>
+    <string name="tbl_col_left">+ Column ←</string>
+    <string name="tbl_col_right">+ Column →</string>
+    <string name="tbl_delete">Delete</string>
+    <string name="tbl_delete_row">Delete row</string>
+    <string name="tbl_delete_col">Delete column</string>
+    <string name="tbl_delete_table">Delete table</string>
+    <string name="tbl_select_table">Select table</string>
+    <string name="g_rows_cols">Rows and columns</string>
+    <string name="g_cells">Cells</string>
+    <string name="g_table_delete">Delete</string>
 </resources>

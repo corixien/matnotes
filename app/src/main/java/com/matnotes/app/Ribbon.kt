@@ -113,6 +113,7 @@ private const val TAB_REFS = 3
 private const val TAB_REVIEW = 4
 private const val TAB_VIEW = 5
 internal const val TAB_PICTURE = 6
+private const val TAB_TABLE = 7
 
 private val RowH = 36.dp
 
@@ -130,10 +131,12 @@ fun Ribbon(state: DocumentViewState, onPickImage: () -> Unit, onPageSetup: (Page
     LaunchedEffect(hasGraphic) {
         if (hasGraphic) { tab = TAB_PICTURE; collapsed = false } else if (tab == TAB_PICTURE) tab = TAB_START
     }
+    LaunchedEffect(state.inTable) { if (!state.inTable && tab == TAB_TABLE) tab = TAB_START }
     val tabs = listOf(
         TAB_START to R.string.tab_start, TAB_INSERT to R.string.tab_insert, TAB_LAYOUT to R.string.tab_layout,
         TAB_REFS to R.string.tab_refs, TAB_REVIEW to R.string.tab_review, TAB_VIEW to R.string.tab_view,
-    ) + if (hasGraphic) listOf(TAB_PICTURE to (if (state.graphicIsImage) R.string.tab_picture else R.string.tab_shape)) else emptyList()
+    ) + (if (hasGraphic) listOf(TAB_PICTURE to (if (state.graphicIsImage) R.string.tab_picture else R.string.tab_shape)) else emptyList()) +
+        (if (state.inTable && !hasGraphic) listOf(TAB_TABLE to R.string.tab_table) else emptyList())
 
     Surface(tonalElevation = 3.dp) {
         Column(Modifier.fillMaxWidth()) {
@@ -181,6 +184,7 @@ fun Ribbon(state: DocumentViewState, onPickImage: () -> Unit, onPageSetup: (Page
                         TAB_REFS -> RefsTab(state)
                         TAB_REVIEW -> ReviewTab(state)
                         TAB_VIEW -> ViewTab(state)
+                        TAB_TABLE -> TableTab(state)
                         else -> PictureTab(state)
                     }
                 }
@@ -439,6 +443,29 @@ private fun ViewTab(state: DocumentViewState) {
         BigBtn(stringResource(R.string.zoom_out), onClick = { state.zoomBy(1 / 1.3f) }) { Glyph("−", 26) }
         BigBtn(stringResource(R.string.zoom_fit), onClick = { state.fitWidth() }) { Ic(26.dp) { fitIcon(it) } }
         BigBtn(stringResource(R.string.zoom_in), onClick = { state.zoomBy(1.3f) }) { Glyph("+", 26) }
+    }
+}
+
+@Composable
+private fun TableTab(state: DocumentViewState) {
+    Group(stringResource(R.string.g_rows_cols)) {
+        listOf(
+            R.string.tbl_row_above to ".uno:InsertRowsBefore",
+            R.string.tbl_row_below to ".uno:InsertRowsAfter",
+            R.string.tbl_col_left to ".uno:InsertColumnsBefore",
+            R.string.tbl_col_right to ".uno:InsertColumnsAfter",
+        ).forEach { (label, cmd) ->
+            BigBtn(stringResource(label), width = 76.dp, onClick = { state.uno(cmd) }) { Ic(26.dp) { tableIcon(it) } }
+        }
+    }
+    Group(stringResource(R.string.g_cells)) {
+        BigBtn(stringResource(R.string.merge_cells), width = 76.dp, onClick = { state.uno(".uno:MergeCells") }) { Glyph("⊞", 22) }
+        BigBtn(stringResource(R.string.tbl_select_table), width = 76.dp, onClick = { state.uno(".uno:SelectTable") }) { Glyph("▦", 22) }
+    }
+    Group(stringResource(R.string.g_table_delete)) {
+        BigBtn(stringResource(R.string.tbl_delete_row), width = 76.dp, onClick = { state.uno(".uno:DeleteRows") }) { Glyph("−≡", 18) }
+        BigBtn(stringResource(R.string.tbl_delete_col), width = 76.dp, onClick = { state.uno(".uno:DeleteColumns") }) { Glyph("−⫼", 18) }
+        BigBtn(stringResource(R.string.tbl_delete_table), width = 76.dp, onClick = { state.uno(".uno:DeleteTable") }) { Glyph("🗑", 20) }
     }
 }
 

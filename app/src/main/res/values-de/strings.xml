@@ -193,4 +193,17 @@
     <string name="shape_document">Dokument</string>
     <string name="shape_callout">Sprechblase</string>
     <string name="shape_callout_round">Runde Sprechblase</string>
+    <string name="tab_table">Tabelle</string>
+    <string name="tbl_row_above">+ Zeile ↑</string>
+    <string name="tbl_row_below">+ Zeile ↓</string>
+    <string name="tbl_col_left">+ Spalte ←</string>
+    <string name="tbl_col_right">+ Spalte →</string>
+    <string name="tbl_delete">Löschen</string>
+    <string name="tbl_delete_row">Zeile löschen</string>
+    <string name="tbl_delete_col">Spalte löschen</string>
+    <string name="tbl_delete_table">Tabelle löschen</string>
+    <string name="tbl_select_table">Tabelle markieren</string>
+    <string name="g_rows_cols">Zeilen und Spalten</string>
+    <string name="g_cells">Zellen</string>
+    <string name="g_table_delete">Löschen</string>
 </resources>
