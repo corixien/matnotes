@@ -168,9 +168,10 @@ class MainActivity : ComponentActivity() {
             }
             if (i?.hasExtra("dump") == true) { current?.state?.dumpState(); return }
             if (i?.hasExtra("key") == true) { current?.state?.pressKey(i.getIntExtra("key", 0)); return }
-            i?.getStringExtra("mouse")?.let { m ->
-                val (t, x, y, c) = m.split(',').map { it.toFloat() }
-                current?.state?.debugMouse(t.toInt(), androidx.compose.ui.geometry.Offset(x, y), c.toInt()); return
+            i?.getStringExtra("mousetw")?.let { m ->
+                // type,x,y,count,buttons,modifier in document twips
+                val v = m.split(',').map { it.toInt() }
+                current?.state?.debugMouseTw(v[0], v[1], v[2], v[3], v[4], v[5]); return
             }
             i?.getStringExtra("zoom")?.toFloatOrNull()?.let { f -> current?.state?.zoomBy(f); return }
             i?.getStringExtra("link")?.let { l ->
@@ -215,7 +216,7 @@ class MainActivity : ComponentActivity() {
                     saveUri = if (myDocs.any { it.uri == uri }) uri else null
                     current = OpenDoc(
                         doc, name,
-                        DocumentViewState(doc, lifecycleScope, resources.displayMetrics.density).also { it.onSave = ::save },
+                        DocumentViewState(doc, lifecycleScope, resources.displayMetrics.density).also { it.onSave = ::save; it.onTableOp = ::applyTableOp },
                         uri,
                     )
                     recents.add(uri.toString(), name)
@@ -249,7 +250,7 @@ class MainActivity : ComponentActivity() {
                 } else {
                     current?.let { closeDocument() }
                     saveUri = null
-                    val st = DocumentViewState(doc, lifecycleScope, resources.displayMetrics.density).also { it.onSave = ::save }
+                    val st = DocumentViewState(doc, lifecycleScope, resources.displayMetrics.density).also { it.onSave = ::save; it.onTableOp = ::applyTableOp }
                     current = OpenDoc(doc, name, st, null)
                     st.editing = true
                     st.wantKeyboard = true
@@ -440,13 +441,47 @@ class MainActivity : ComponentActivity() {
                 check(exported) { "export failed" }
                 withContext(Dispatchers.IO) { PageSetup.apply(src, dst, change) }
                 val doc = Engine.open(this@MainActivity, dst) ?: error("reload failed")
-                val st = DocumentViewState(doc, lifecycleScope, resources.displayMetrics.density).also { it.onSave = ::save }
+                val st = DocumentViewState(doc, lifecycleScope, resources.displayMetrics.density).also { it.onSave = ::save; it.onTableOp = ::applyTableOp }
                 st.editing = cur.state.editing
                 st.dirty = true
                 current = OpenDoc(doc, cur.title, st, cur.source)
                 lifecycleScope.launch(Engine.dispatcher) { cur.doc.close() }
             } catch (e: Throwable) {
                 Log.e(TAG, "page setup failed", e)
+                android.widget.Toast.makeText(this@MainActivity, R.string.export_failed, android.widget.Toast.LENGTH_LONG).show()
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    /** Writes a table border / look into the exported docx (the caret's table is found by a typed marker) and reloads. */
+    private fun applyTableOp(op: TableOp) {
+        val cur = current ?: return
+        busy = true
+        lifecycleScope.launch {
+            try {
+                cur.state.typeText(TablePatch.MARK)
+                kotlinx.coroutines.delay(700) // LibreOffice applies the typed marker asynchronously
+                val dir = File(cacheDir, "open/${UUID.randomUUID()}").apply { mkdirs() }
+                val src = File(dir, "in.docx")
+                val dst = File(dir, cur.title)
+                val exported = withContext(Engine.dispatcher) { cur.doc.saveAs(src, "docx") }
+                check(exported) { "export failed" }
+                val found = withContext(Dispatchers.IO) { TablePatch.apply(src, dst, op) }
+                if (!found) {
+                    android.widget.Toast.makeText(this@MainActivity, R.string.table_not_found, android.widget.Toast.LENGTH_LONG).show()
+                    return@launch
+                }
+                val doc = Engine.open(this@MainActivity, dst) ?: error("reload failed")
+                val st = DocumentViewState(doc, lifecycleScope, resources.displayMetrics.density).also { it.onSave = ::save; it.onTableOp = ::applyTableOp }
+                st.editing = cur.state.editing
+                st.dirty = true
+                st.copyViewFrom(cur.state)
+                current = OpenDoc(doc, cur.title, st, cur.source)
+                lifecycleScope.launch(Engine.dispatcher) { cur.doc.close() }
+            } catch (e: Throwable) {
+                Log.e(TAG, "table patch failed", e)
                 android.widget.Toast.makeText(this@MainActivity, R.string.export_failed, android.widget.Toast.LENGTH_LONG).show()
             } finally {
                 busy = false

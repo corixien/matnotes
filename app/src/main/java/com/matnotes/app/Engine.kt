@@ -124,10 +124,10 @@ class LoDocument(private val doc: Document, val file: File) {
 
     // --- editing (engine thread) ---
 
-    fun mouse(type: Int, xTw: Int, yTw: Int, count: Int, pxPerTwip: Float) {
+    fun mouse(type: Int, xTw: Int, yTw: Int, count: Int, pxPerTwip: Float, buttons: Int = Document.MOUSE_BUTTON_LEFT, modifier: Int = Document.KEYBOARD_MODIFIER_NONE) {
         val tile = (256 / pxPerTwip).toInt().coerceAtLeast(1)
         doc.setClientZoom(256, 256, tile, tile)
-        doc.postMouseEvent(type, xTw, yTw, count, Document.MOUSE_BUTTON_LEFT, Document.KEYBOARD_MODIFIER_NONE)
+        doc.postMouseEvent(type, xTw, yTw, count, buttons, modifier)
     }
 
     fun key(type: Int, charCode: Int, keyCode: Int) = doc.postKeyEvent(type, charCode, keyCode)
@@ -200,6 +200,8 @@ object Keys {
     const val PAGEDOWN = 1031
     const val RETURN = 1280
     const val ESCAPE = 1281
+    /** Modifier bit: Alt. Alt+arrows resize the caret cell's column/row border in Writer tables. */
+    const val ALT = 0x4000
     const val TAB = 1282
     const val BACKSPACE = 1283
     const val DELETE = 1286

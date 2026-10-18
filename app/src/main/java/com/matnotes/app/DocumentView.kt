@@ -60,6 +60,7 @@ private const val BASE_LEVEL = 2 // level = zoom * 2; level 2 == fit-width scale
 private val PageGray = Color(0xFFE6E6E6)
 private val SelectionColor = Color(0x553D7BF0)
 private val AccentColor = Color(0xFF2B579A)
+private val MinusColor = Color(0xFFC62828)
 private val CursorColor = Color(0xFF1B1B1B)
 
 private data class TileKey(val page: Int, val level: Int, val tx: Int, val ty: Int)
@@ -69,10 +70,13 @@ private class Tile(val bmp: Bitmap, @Volatile var stale: Boolean = false)
 /** Borders of the table under the caret in document twips, outer edges included (so n cells have n + 1 values). */
 class TableGeom(val colX: List<Float>, val rowY: List<Float>)
 
-/** A "+" button on a table border: [column] true = insert a column at border [k], else a row. */
-class TableMarker(val center: Offset, val column: Boolean, val k: Int)
+/**
+ * A speech bubble attached to a table border or to a row/column: "+" ([minus] false) inserts at border [k], "-" deletes
+ * column/row [k]. [column] true = above the table, else left of it. [tail] is the point the bubble's tail touches.
+ */
+class TableMarker(val center: Offset, val column: Boolean, val k: Int, val minus: Boolean, val tail: Offset, val r: Float)
 
-private enum class Drag { SelStart, SelEnd, GraphicBody, GraphicHandle }
+private enum class Drag { SelStart, SelEnd, GraphicBody, GraphicHandle, TableBorder }
 
 /** Scroll/zoom state, async tile cache and edit overlay state for one document. */
 class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, private val density: Float) {
@@ -149,6 +153,10 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
 
     /** Set by the activity so Ctrl+S on a hardware keyboard can save. */
     var onSave: (() -> Unit)? = null
+    /** Set by the activity: table borders / looks are written into the exported docx and the document reloads. */
+    var onTableOp: ((TableOp) -> Unit)? = null
+    /** Border line used by the border presets of the Table tab. */
+    var borderLine by mutableStateOf(BorderLine())
 
     /** Scrollable distance in view pixels (0 when the whole document fits). */
     val scrollRange: Float get() = (layout.height * scale - viewSize.height).coerceAtLeast(0f)
@@ -269,9 +277,10 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     }
 
     /** Drops the text selection overlay (rectangles, handles and the hold used against LibreOffice's empty updates). */
-    fun debugMouse(type: Int, at: Offset, count: Int) {
-        val x = twX(at.x).roundToInt(); val y = twY(at.y).roundToInt(); val sc = scale
-        edit { mouse(type, x, y, count, sc) }
+    /** Debug hook: raw document twips, [buttons] and [modifier] as in LibreOfficeKit. */
+    fun debugMouseTw(type: Int, x: Int, y: Int, count: Int, buttons: Int, modifier: Int) {
+        val sc = scale
+        edit { mouse(type, x, y, count, sc, buttons, modifier) }
     }
 
     fun dumpState() {
@@ -286,7 +295,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     }
 
     fun click(at: Offset, count: Int = 1) {
-        if (count == 1) tableMarkerAt(at)?.let { insertAtBorder(it.column, it.k); return }
+        if (count == 1) tableMarkerAt(at)?.let { if (it.minus) deleteAt(it.column, it.k) else insertAtBorder(it.column, it.k); return }
         val g = graphic ?: if (inTextBox) lastGraphic else null
         if (g != null && !graphicIsImage && g.contains(twX(at.x), twY(at.y))) {
             if (!inTextBox && count == 1) { enterTextBox(at); return }
@@ -357,6 +366,9 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
             }
         }, 300)
     }
+
+    /** Scroll and zoom of [o], so a reloaded document opens where the user was. */
+    fun copyViewFrom(o: DocumentViewState) { zoom = o.zoom; offset = o.offset }
 
     fun typeText(t: String) { selHoldUntil = 0L; markDirty(); followCursor = true; edit { type(t) } }
     fun pressKey(code: Int) { selHoldUntil = 0L; if (code == Keys.BACKSPACE || code == Keys.DELETE || code == Keys.RETURN) markDirty(); followCursor = true; edit { pressKey(code) } }
@@ -481,6 +493,14 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     private var dragStartTw = Offset.Zero
     private var dragRectH = 0f
     private var bodyStarted = false
+    // table border drag (column width / row height): LibreOffice resizes with Alt+arrow keys, one step per press
+    private var borderColumn = true
+    private var borderIndex = 0
+    private var borderStarted = false
+    private var borderStartPos = 0f
+    private var borderStartExtent = 0f
+    private var borderKeyAt = 0L
+    private var borderNet = 0
     private var bodyReadyAt = 0L
     private var dragHandleTw = Offset.Zero
     private var dragPos = Offset.Zero
@@ -500,6 +520,20 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
             val de = selEnd?.let { dist(p, Offset(pxX(it.right), pxY(it.bottom) + 10 * density)) } ?: Float.MAX_VALUE
             if (ds < hit && ds < de) { selStart?.let { startDrag(Drag.SelStart, p, Offset(it.left, it.bottom), it.height()); return true } }
             if (de < hit) { selEnd?.let { startDrag(Drag.SelEnd, p, Offset(it.right, it.bottom), it.height()); return true } }
+        }
+        // inner table borders: drag to change a column width / row height
+        table?.takeIf { graphic == null && inTable && editing }?.let { t ->
+            val near = 14f * density
+            val top = pxY(t.rowY.first()); val bottom = pxY(t.rowY.last())
+            val left = pxX(t.colX.first()); val right = pxX(t.colX.last())
+            if (p.y in top..bottom) for (k in 1 until t.colX.size - 1) if (abs(p.x - pxX(t.colX[k])) < near) {
+                startDrag(Drag.TableBorder, p, Offset(t.colX[k], t.rowY.first()), 0f)
+                borderColumn = true; borderIndex = k; borderStarted = false; return true
+            }
+            if (p.x in left..right) for (k in 1 until t.rowY.size - 1) if (abs(p.y - pxY(t.rowY[k])) < near) {
+                startDrag(Drag.TableBorder, p, Offset(t.colX.first(), t.rowY[k]), 0f)
+                borderColumn = false; borderIndex = k; borderStarted = false; return true
+            }
         }
         graphic?.let { g ->
             val handles = graphicHandles(g)
@@ -546,7 +580,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
         followCursor = false
     }
 
-    fun dragConsumesEvents(): Boolean = drag != Drag.GraphicBody || bodyStarted
+    fun dragConsumesEvents(): Boolean = when (drag) { Drag.GraphicBody -> bodyStarted; Drag.TableBorder -> borderStarted; else -> true }
 
     fun dragTo(p: Offset) {
         val kind = drag ?: return
@@ -559,6 +593,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
                 val x = pt.x.roundToInt(); val y = (pt.y - dragRectH / 2).roundToInt()
                 doc.post { setTextSelection(type, x, y) }
             }
+            Drag.TableBorder -> dragTableBorder(p, cur)
             Drag.GraphicBody -> {
                 val g = graphic ?: return
                 if (!bodyStarted) {
@@ -644,7 +679,75 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
                 } else dragHandleTw + delta
                 edit { setGraphicSelection(Document.SET_GRAPHIC_SELECTION_END, pt.x.roundToInt(), pt.y.roundToInt(), s) }
             }
+            Drag.TableBorder -> if (borderStarted) finishTableBorder()
             else -> Unit
+        }
+    }
+
+    /** Puts the caret into a cell next to the dragged border: the cell left of / above it. */
+    private fun caretNextToBorder(t: TableGeom) {
+        val sc = scale
+        val k = borderIndex
+        val x: Int; val y: Int
+        if (borderColumn) {
+            x = ((t.colX[k - 1] + t.colX[k]) / 2f).roundToInt()
+            y = (cursor?.let { (it.top + it.bottom) / 2f } ?: (t.rowY[0] + 150f)).roundToInt()
+        } else {
+            x = (cursor?.left ?: (t.colX[0] + 150f)).roundToInt()
+            y = ((t.rowY[k - 1] + t.rowY[k]) / 2f).roundToInt()
+        }
+        edit { mouse(Document.MOUSE_EVENT_BUTTON_DOWN, x, y, 1, sc); mouse(Document.MOUSE_EVENT_BUTTON_UP, x, y, 1, sc) }
+    }
+
+    private fun dragTableBorder(p: Offset, cur: Offset) {
+        val t = table ?: return
+        if (!borderStarted) {
+            if (dist(p, Offset(pxX(dragStartTw.x), pxY(dragStartTw.y))) < 8f * density) return
+            borderStarted = true
+            markDirty()
+            borderNet = 0
+            borderStartPos = if (borderColumn) t.colX[borderIndex] else t.rowY[borderIndex]
+            borderStartExtent = if (borderColumn) t.colX.last() - t.colX.first() else t.rowY.last() - t.rowY.first()
+            caretNextToBorder(t)
+            borderKeyAt = android.os.SystemClock.uptimeMillis() + 250 // let the caret settle first
+        }
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now < borderKeyAt) return
+        val want = borderStartPos + if (borderColumn) cur.x - dragStartTw.x else cur.y - dragStartTw.y
+        val have = if (borderColumn) t.colX.getOrNull(borderIndex) else t.rowY.getOrNull(borderIndex)
+        if (have == null) return
+        val diff = want - have
+        if (abs(diff) < 150f) return
+        val grow = diff > 0
+        val key = (if (borderColumn) (if (grow) Keys.RIGHT else Keys.LEFT) else (if (grow) Keys.DOWN else Keys.UP)) or Keys.ALT
+        borderNet += if (grow) 1 else -1
+        borderKeyAt = now + 140 // wait for the new geometry callback before judging again
+        edit { pressKey(key) }
+    }
+
+    /**
+     * Alt+Left/Up shrink the table instead of widening the neighbour. Put the lost extent back on the last column
+     * (rows need nothing: the table just gets shorter/longer like in Word).
+     */
+    private fun finishTableBorder() {
+        if (!borderColumn) return
+        if (table == null) return
+        val start = borderStartExtent
+        scope.launch {
+            repeat(12) {
+                kotlinx.coroutines.delay(180)
+                val t = table ?: return@launch
+                val missing = start - (t.colX.last() - t.colX.first())
+                if (missing < 200f) return@launch
+                val sc = scale
+                val x = ((t.colX[t.colX.size - 2] + t.colX.last()) / 2f).roundToInt()
+                val y = ((t.rowY[0] + t.rowY[1]) / 2f).roundToInt()
+                edit {
+                    mouse(Document.MOUSE_EVENT_BUTTON_DOWN, x, y, 1, sc); mouse(Document.MOUSE_EVENT_BUTTON_UP, x, y, 1, sc)
+                    pressKey(Keys.RIGHT or Keys.ALT)
+                }
+                kotlinx.coroutines.delay(150)
+            }
         }
     }
 
@@ -728,32 +831,55 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     fun tableMarkers(): List<TableMarker> {
         val t = table ?: return emptyList()
         if (!editing) return emptyList()
-        val gap = 18f * density
-        val minSpacing = 2.4f * 9f * density
         val top = pxY(t.rowY.first()); val left = pxX(t.colX.first())
+        val xs = t.colX.map { pxX(it) }; val ys = t.rowY.map { pxY(it) }
         val out = ArrayList<TableMarker>()
-        var last = -1e9f
-        t.colX.forEachIndexed { k, x ->
-            val px = pxX(x)
-            if (px - last >= minSpacing || k == t.colX.lastIndex) {
-                // the outer edge always gets a marker: it replaces a crowded neighbour
-                if (px - last < minSpacing && out.isNotEmpty()) out.removeAt(out.lastIndex)
-                out += TableMarker(Offset(px, top - gap), true, k); last = px
-            }
+        // bubble size follows the narrowest column / row so neighbours do not overlap
+        fun radius(v: List<Float>): Float {
+            val m = v.zipWithNext { a, b -> b - a }.minOrNull() ?: (24f * density)
+            return (m * 0.4f).coerceIn(6f * density, 11f * density)
         }
-        last = -1e9f
-        t.rowY.forEachIndexed { k, y ->
-            val py = pxY(y)
-            if (py - last >= minSpacing || k == t.rowY.lastIndex) {
-                if (py - last < minSpacing && out.lastOrNull()?.column == false) out.removeAt(out.lastIndex)
-                out += TableMarker(Offset(left - gap, py), false, k); last = py
-            }
+        val rc = radius(xs); val rr = radius(ys)
+        val plusY = top - (2f * rc + 4f * density); val minusY = plusY - (2f * rc + 6f * density)
+        val plusX = left - (2f * rr + 4f * density); val minusX = plusX - (2f * rr + 6f * density)
+        xs.forEachIndexed { k, x -> out += TableMarker(Offset(x, plusY), true, k, false, Offset(x, top), rc) }
+        if (xs.size > 2) for (i in 0 until xs.size - 1) {
+            val c = (xs[i] + xs[i + 1]) / 2f
+            out += TableMarker(Offset(c, minusY), true, i, true, Offset(c, top), rc)
+        }
+        ys.forEachIndexed { k, y -> out += TableMarker(Offset(plusX, y), false, k, false, Offset(left, y), rr) }
+        if (ys.size > 2) for (i in 0 until ys.size - 1) {
+            val c = (ys[i] + ys[i + 1]) / 2f
+            out += TableMarker(Offset(minusX, c), false, i, true, Offset(left, c), rr)
         }
         return out
     }
 
     private fun tableMarkerAt(at: Offset): TableMarker? =
-        tableMarkers().minByOrNull { dist(at, it.center) }?.takeIf { dist(at, it.center) < 20f * density }
+        tableMarkers().minByOrNull { dist(at, it.center) }?.takeIf { dist(at, it.center) < it.r + 8f * density }
+
+    /** Deletes column/row [i]: the caret goes into one of its cells first. */
+    fun deleteAt(column: Boolean, i: Int) {
+        val t = table ?: return
+        val cur = cursor
+        val sc = scale
+        markDirty()
+        if (column) {
+            val x = ((t.colX[i] + t.colX[i + 1]) / 2f).roundToInt()
+            val y = (cur?.let { (it.top + it.bottom) / 2f } ?: (t.rowY[0] + 150f)).roundToInt()
+            edit {
+                mouse(Document.MOUSE_EVENT_BUTTON_DOWN, x, y, 1, sc); mouse(Document.MOUSE_EVENT_BUTTON_UP, x, y, 1, sc)
+                uno(".uno:DeleteColumns")
+            }
+        } else {
+            val y = ((t.rowY[i] + t.rowY[i + 1]) / 2f).roundToInt()
+            val x = (cur?.left ?: (t.colX[0] + 150f)).roundToInt()
+            edit {
+                mouse(Document.MOUSE_EVENT_BUTTON_DOWN, x, y, 1, sc); mouse(Document.MOUSE_EVENT_BUTTON_UP, x, y, 1, sc)
+                uno(".uno:DeleteRows")
+            }
+        }
+    }
 
     /** Inserts a column/row at border [k]: put the caret in the neighbouring cell, then use LibreOffice's command. */
     fun insertAtBorder(column: Boolean, k: Int) {
@@ -918,12 +1044,23 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
             }
         }
         for (m in tableMarkers()) {
-            val r = 9f * density
-            drawCircle(Color.White, r + 1.5f * density, m.center)
-            drawCircle(AccentColor, r, m.center)
-            val a = 4.5f * density; val sw = 2f * density
+            val r = m.r
+            val col = if (m.minus) MinusColor else AccentColor
+            // tail: a thin triangle from the bubble to the border / row / column it belongs to
+            val dx = m.tail.x - m.center.x; val dy = m.tail.y - m.center.y
+            val len = kotlin.math.sqrt(dx * dx + dy * dy).coerceAtLeast(1f)
+            val ux = dx / len; val uy = dy / len
+            val px = -uy * r * 0.55f; val py = ux * r * 0.55f
+            val base = Offset(m.center.x + ux * r * 0.6f, m.center.y + uy * r * 0.6f)
+            val tail = androidx.compose.ui.graphics.Path().apply {
+                moveTo(base.x + px, base.y + py); lineTo(m.tail.x, m.tail.y); lineTo(base.x - px, base.y - py); close()
+            }
+            drawPath(tail, col)
+            drawCircle(Color.White, r + 1.2f * density, m.center)
+            drawCircle(col, r, m.center)
+            val a = r * 0.5f; val sw = (r * 0.22f).coerceAtLeast(1.4f * density)
             drawLine(Color.White, Offset(m.center.x - a, m.center.y), Offset(m.center.x + a, m.center.y), sw, StrokeCap.Round)
-            drawLine(Color.White, Offset(m.center.x, m.center.y - a), Offset(m.center.x, m.center.y + a), sw, StrokeCap.Round)
+            if (!m.minus) drawLine(Color.White, Offset(m.center.x, m.center.y - a), Offset(m.center.x, m.center.y + a), sw, StrokeCap.Round)
         }
         preview?.let { r ->
             drawRect(

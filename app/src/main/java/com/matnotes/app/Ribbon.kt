@@ -483,6 +483,46 @@ private fun TableTab(state: DocumentViewState) {
         BigBtn(stringResource(R.string.tbl_valign_center), width = 64.dp, onClick = { state.uno(".uno:CellVertCenter") }) { Glyph("↕", 20) }
         BigBtn(stringResource(R.string.tbl_valign_bottom), width = 64.dp, onClick = { state.uno(".uno:CellVertBottom") }) { Glyph("⤓", 20) }
     }
+    Group(stringResource(R.string.g_table_borders)) {
+        listOf(
+            R.string.b_all to Edge.ALL, R.string.b_outside to Edge.OUTSIDE, R.string.b_inside to Edge.INSIDE, R.string.b_none to Edge.NONE,
+            R.string.b_top to Edge.TOP, R.string.b_bottom to Edge.BOTTOM, R.string.b_left to Edge.LEFT, R.string.b_right to Edge.RIGHT,
+            R.string.b_inside_h to Edge.INSIDE_H, R.string.b_inside_v to Edge.INSIDE_V,
+        ).forEach { (label, edge) ->
+            BigBtn(stringResource(label), width = 62.dp, onClick = { state.onTableOp?.invoke(TableOp(edge = edge, line = state.borderLine)) }) {
+                Ic(26.dp) { borderIcon(it, edge) }
+            }
+        }
+        MenuBigBtn(stringResource(R.string.b_style), { Glyph("┄", 22) }) { close ->
+            listOf(R.string.ls_single to "single", R.string.ls_dashed to "dashed", R.string.ls_dotted to "dotted", R.string.ls_double to "double")
+                .forEach { (l, v) -> DropdownMenuItem({ Text(stringResource(l)) }, { close(); state.borderLine = state.borderLine.copy(style = v) }) }
+        }
+        MenuBigBtn(stringResource(R.string.b_width), { Glyph("━", 22) }) { close ->
+            listOf("0,5 pt" to 4, "1 pt" to 8, "1,5 pt" to 12, "2,25 pt" to 18, "3 pt" to 24)
+                .forEach { (l, v) -> DropdownMenuItem({ Text(l) }, { close(); state.borderLine = state.borderLine.copy(size = v) }) }
+        }
+        MenuBigBtn(stringResource(R.string.b_color), { Box(Modifier.size(22.dp).clip(CircleShape).background(Color(0xFF000000 or state.borderLine.color.toLong(16)))) }) { close ->
+            Row(Modifier.padding(horizontal = 8.dp)) {
+                listOf("000000", "595959", "A6A6A6", "C00000", "ED7D31", "FFC000", "70AD47", "2F5597", "7030A0").forEach { c ->
+                    Box(
+                        Modifier.padding(2.dp).size(30.dp).clip(CircleShape).background(Color(0xFF000000 or c.toLong(16)))
+                            .clickable { close(); state.borderLine = state.borderLine.copy(color = c) },
+                    )
+                }
+            }
+        }
+    }
+    Group(stringResource(R.string.g_table_styles)) {
+        TableLooks.all.forEach { look ->
+            val label = when (look.id) {
+                "grid" -> R.string.tl_grid; "grid_gray" -> R.string.tl_grid_gray; "blue" -> R.string.tl_blue; "green" -> R.string.tl_green
+                "orange" -> R.string.tl_orange; "striped" -> R.string.tl_striped; "minimal" -> R.string.tl_minimal; else -> R.string.tl_dark
+            }
+            BigBtn(stringResource(label), width = 76.dp, onClick = { state.onTableOp?.invoke(TableOp(look = look)) }) {
+                Canvas(Modifier.size(width = 56.dp, height = 32.dp)) { drawLookThumb(look) }
+            }
+        }
+    }
     Group(stringResource(R.string.g_table_delete)) {
         BigBtn(stringResource(R.string.tbl_delete_row), width = 76.dp, onClick = { state.uno(".uno:DeleteRows") }) { Glyph("−≡", 18) }
         BigBtn(stringResource(R.string.tbl_delete_col), width = 76.dp, onClick = { state.uno(".uno:DeleteColumns") }) { Glyph("−⫼", 18) }
@@ -1088,6 +1128,49 @@ private fun DrawScope.orientationIcon(c: Color) {
     val w = size.width; val h = size.height; val sw = 1.6f * density
     drawRoundRect(c, Offset(w * 0.2f, h * 0.04f), Size(w * 0.36f, h * 0.6f), CornerRadius(2f * density), style = Stroke(sw))
     drawRoundRect(c, Offset(w * 0.34f, h * 0.5f), Size(w * 0.6f, h * 0.38f), CornerRadius(2f * density), style = Stroke(sw))
+}
+
+/** 3x3 cell grid, the lines belonging to [edge] drawn strong, the rest faint (Word's border presets). */
+private fun DrawScope.borderIcon(c: Color, edge: Edge) {
+    val w = size.width; val x0 = w * 0.1f; val x3 = w * 0.9f; val y0 = x0; val y3 = x3
+    val xs = listOf(x0, x0 + (x3 - x0) / 3f, x0 + 2f * (x3 - x0) / 3f, x3)
+    val faint = c.copy(alpha = 0.28f); val sw = 2f * density
+    fun h(i: Int, col: Color) = drawLine(col, Offset(x0, xs[i]), Offset(x3, xs[i]), if (col == faint) 1f * density else sw, StrokeCap.Round)
+    fun v(i: Int, col: Color) = drawLine(col, Offset(xs[i], y0), Offset(xs[i], y3), if (col == faint) 1f * density else sw, StrokeCap.Round)
+    val on = when (edge) {
+        Edge.ALL -> setOf("t", "b", "l", "r", "h1", "h2", "v1", "v2")
+        Edge.OUTSIDE -> setOf("t", "b", "l", "r")
+        Edge.INSIDE -> setOf("h1", "h2", "v1", "v2")
+        Edge.INSIDE_H -> setOf("h1", "h2")
+        Edge.INSIDE_V -> setOf("v1", "v2")
+        Edge.TOP -> setOf("t"); Edge.BOTTOM -> setOf("b"); Edge.LEFT -> setOf("l"); Edge.RIGHT -> setOf("r")
+        Edge.NONE -> emptySet()
+    }
+    h(0, if ("t" in on) c else faint); h(1, if ("h1" in on) c else faint); h(2, if ("h2" in on) c else faint); h(3, if ("b" in on) c else faint)
+    v(0, if ("l" in on) c else faint); v(1, if ("v1" in on) c else faint); v(2, if ("v2" in on) c else faint); v(3, if ("r" in on) c else faint)
+}
+
+/** Small preview of a table look: header fill, banded rows and borders as they will be written. */
+private fun DrawScope.drawLookThumb(look: TableLook) {
+    fun col(hex: String) = Color(0xFF000000 or hex.toLong(16))
+    val w = size.width; val h = size.height
+    val rows = 4; val cols = 4
+    val rh = h / rows; val cw = w / cols
+    for (r in 0 until rows) {
+        val fill = when {
+            r == 0 && look.headerFill != null -> look.headerFill
+            r != 0 && look.band != null && r % 2 == 0 -> look.band
+            else -> null
+        }
+        if (fill != null) drawRect(col(fill), Offset(0f, r * rh), Size(w, rh))
+    }
+    fun line(l: BorderLine?, x0: Float, y0: Float, x1: Float, y1: Float) {
+        if (l != null) drawLine(col(l.color), Offset(x0, y0), Offset(x1, y1), (l.size / 4f).coerceIn(1f, 2.5f) * density)
+    }
+    val e = look.edges
+    line(e.top, 0f, 0f, w, 0f); line(e.bottom, 0f, h, w, h); line(e.left, 0f, 0f, 0f, h); line(e.right, w, 0f, w, h)
+    for (r in 1 until rows) line(e.insideH, 0f, r * rh, w, r * rh)
+    for (c in 1 until cols) line(e.insideV, c * cw, 0f, c * cw, h)
 }
 
 private fun DrawScope.shapesIcon(c: Color) {
