@@ -166,10 +166,12 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     private val contentHeight get() = layout.height * scale
 
     fun clamp(o: Offset): Offset {
-        val x = if (contentWidth <= viewSize.width) (viewSize.width - contentWidth) / 2f
-        else o.x.coerceIn(viewSize.width - contentWidth, 0f)
-        val y = if (contentHeight <= viewSize.height) 0f
-        else o.y.coerceIn(viewSize.height - contentHeight, 0f)
+        // a grey margin all around the pages, so zooming out leaves room on every side (like Word)
+        val pad = 28f * density
+        val x = if (contentWidth + 2 * pad <= viewSize.width) (viewSize.width - contentWidth) / 2f
+        else o.x.coerceIn(viewSize.width - contentWidth - pad, pad)
+        val y = if (contentHeight + 2 * pad <= viewSize.height) pad
+        else o.y.coerceIn(viewSize.height - contentHeight - pad, pad)
         return Offset(x, y)
     }
 
@@ -837,18 +839,20 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
         // bubble size follows the narrowest column / row so neighbours do not overlap
         fun radius(v: List<Float>): Float {
             val m = v.zipWithNext { a, b -> b - a }.minOrNull() ?: (24f * density)
-            return (m * 0.4f).coerceIn(6f * density, 11f * density)
+            return (m * 0.4f).coerceAtMost(11f * density)
         }
         val rc = radius(xs); val rr = radius(ys)
+        // zoomed far out the bubbles would be larger than the cells: hide that axis' bubbles until the user zooms in
+        val minR = 5f * density
         val plusY = top - (2f * rc + 4f * density); val minusY = plusY - (2f * rc + 6f * density)
         val plusX = left - (2f * rr + 4f * density); val minusX = plusX - (2f * rr + 6f * density)
-        xs.forEachIndexed { k, x -> out += TableMarker(Offset(x, plusY), true, k, false, Offset(x, top), rc) }
-        if (xs.size > 2) for (i in 0 until xs.size - 1) {
+        if (rc >= minR) xs.forEachIndexed { k, x -> out += TableMarker(Offset(x, plusY), true, k, false, Offset(x, top), rc) }
+        if (rc >= minR && xs.size > 2) for (i in 0 until xs.size - 1) {
             val c = (xs[i] + xs[i + 1]) / 2f
             out += TableMarker(Offset(c, minusY), true, i, true, Offset(c, top), rc)
         }
-        ys.forEachIndexed { k, y -> out += TableMarker(Offset(plusX, y), false, k, false, Offset(left, y), rr) }
-        if (ys.size > 2) for (i in 0 until ys.size - 1) {
+        if (rr >= minR) ys.forEachIndexed { k, y -> out += TableMarker(Offset(plusX, y), false, k, false, Offset(left, y), rr) }
+        if (rr >= minR && ys.size > 2) for (i in 0 until ys.size - 1) {
             val c = (ys[i] + ys[i + 1]) / 2f
             out += TableMarker(Offset(minusX, c), false, i, true, Offset(left, c), rr)
         }

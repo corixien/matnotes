@@ -1156,6 +1156,7 @@ private fun DrawScope.drawLookThumb(look: TableLook) {
     val w = size.width; val h = size.height
     val rows = 4; val cols = 4
     val rh = h / rows; val cw = w / cols
+    drawRect(Color.White, Offset.Zero, Size(w, h))
     for (r in 0 until rows) {
         val fill = when {
             r == 0 && look.headerFill != null -> look.headerFill

@@ -8,7 +8,6 @@ import java.io.StringWriter
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
-import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
 import javax.xml.transform.OutputKeys
 import javax.xml.transform.TransformerFactory
@@ -98,7 +97,6 @@ object TablePatch {
     fun patch(xml: ByteArray, op: TableOp): ByteArray? {
         val dbf = DocumentBuilderFactory.newInstance().apply {
             isNamespaceAware = true
-            setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true)
         }
         val doc = dbf.newDocumentBuilder().parse(xml.inputStream())
         val ts = doc.getElementsByTagNameNS(W, "t")

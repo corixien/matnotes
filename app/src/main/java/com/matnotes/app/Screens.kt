@@ -211,7 +211,6 @@ fun ViewerScreen(
             FastScroller(state, Modifier.align(Alignment.CenterEnd))
             if (state.editing) {
                 SelectionToolbar(state)
-                TableToolbar(state)
                 GraphicToolbar(state)
             }
             ZoomIndicator(state, Modifier.align(Alignment.TopCenter).padding(top = 12.dp))
@@ -385,51 +384,6 @@ private fun SelectionToolbar(state: DocumentViewState) {
                             softWrap = false,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** Floating bar above the table under the caret: add rows/columns next to the caret cell, delete. */
-@Composable
-private fun TableToolbar(state: DocumentViewState) {
-    if (state.graphic != null || state.selection.isNotEmpty()) return
-    val b = state.tableBounds() ?: return
-    val density = LocalDensity.current
-    val barW = 360.dp
-    val barH = 44.dp
-    var menu by remember { mutableStateOf(false) }
-    with(density) {
-        val x = (((b.left + b.right) / 2f) - barW.toPx() / 2f).roundToInt()
-            .coerceIn(8.dp.roundToPx(), max(8.dp.roundToPx(), state.viewSize.width - barW.roundToPx() - 8.dp.roundToPx()))
-        // above the "+" markers; below the table when there is no room at the top
-        val above = b.top - barH.toPx() - 40.dp.toPx()
-        val y = if (above > 4.dp.toPx()) above else b.bottom + 16.dp.toPx()
-        Surface(
-            Modifier.offset { IntOffset(x, y.roundToInt()) }.width(barW).height(barH),
-            shape = RoundedCornerShape(10.dp),
-            shadowElevation = 6.dp,
-            color = MaterialTheme.colorScheme.surfaceVariant,
-        ) {
-            Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-                listOf(
-                    R.string.tbl_row_above to ".uno:InsertRowsBefore",
-                    R.string.tbl_row_below to ".uno:InsertRowsAfter",
-                    R.string.tbl_col_left to ".uno:InsertColumnsBefore",
-                    R.string.tbl_col_right to ".uno:InsertColumnsAfter",
-                ).forEach { (label, cmd) ->
-                    Box(Modifier.weight(1f).fillMaxSize().clickable { state.uno(cmd) }, contentAlignment = Alignment.Center) {
-                        Text(stringResource(label), fontSize = 12.sp, maxLines = 1, softWrap = false, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-                Box(Modifier.weight(1f).fillMaxSize().clickable { menu = true }, contentAlignment = Alignment.Center) {
-                    Text(stringResource(R.string.tbl_delete) + " ▾", fontSize = 12.sp, maxLines = 1, softWrap = false, color = MaterialTheme.colorScheme.error)
-                    DropdownMenu(menu, { menu = false }) {
-                        DropdownMenuItem({ Text(stringResource(R.string.tbl_delete_row)) }, { menu = false; state.uno(".uno:DeleteRows") })
-                        DropdownMenuItem({ Text(stringResource(R.string.tbl_delete_col)) }, { menu = false; state.uno(".uno:DeleteColumns") })
-                        DropdownMenuItem({ Text(stringResource(R.string.tbl_delete_table)) }, { menu = false; state.uno(".uno:DeleteTable") })
                     }
                 }
             }
