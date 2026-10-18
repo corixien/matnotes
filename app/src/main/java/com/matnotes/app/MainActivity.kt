@@ -166,6 +166,12 @@ class MainActivity : ComponentActivity() {
                 val (x, y) = xy.split(',').map { it.toFloat() }
                 current?.state?.doubleTap(androidx.compose.ui.geometry.Offset(x, y)); return
             }
+            if (i?.hasExtra("dump") == true) { current?.state?.dumpState(); return }
+            if (i?.hasExtra("key") == true) { current?.state?.pressKey(i.getIntExtra("key", 0)); return }
+            i?.getStringExtra("mouse")?.let { m ->
+                val (t, x, y, c) = m.split(',').map { it.toFloat() }
+                current?.state?.debugMouse(t.toInt(), androidx.compose.ui.geometry.Offset(x, y), c.toInt()); return
+            }
             i?.getStringExtra("zoom")?.toFloatOrNull()?.let { f -> current?.state?.zoomBy(f); return }
             i?.getStringExtra("link")?.let { l ->
                 val (t, u) = l.split('|'); current?.state?.insertLink(t, u); return

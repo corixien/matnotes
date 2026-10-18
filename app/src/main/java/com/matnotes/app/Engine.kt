@@ -199,6 +199,7 @@ object Keys {
     const val PAGEUP = 1030
     const val PAGEDOWN = 1031
     const val RETURN = 1280
+    const val ESCAPE = 1281
     const val TAB = 1282
     const val BACKSPACE = 1283
     const val DELETE = 1286

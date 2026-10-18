@@ -28,6 +28,7 @@ Kotlin + Jetpack Compose, LibreOfficeKit (JNI) as render/edit engine, coroutines
 - Image/shape corner handles keep the aspect ratio (LibreOffice behaviour), edge handles resize one side. Drag = `setGraphicSelection(START at handle, END at handle+delta)` after `setClientZoom`.
 - Verified working: rotate/flip (`.uno:RotateLeft/Right`, `.uno:FlipHorizontal/Vertical`), wrap/anchor/arrange commands, `.uno:FillColor`, `.uno:XLineColor`, `.uno:BackgroundColor`, case changes, hyperlink on a selection, header/footer, footnote, table insert/rows/columns, find/replace via `.uno:ExecuteSearch` (`SearchItem.Command` 0 find, 2 replace, 3 replace all).
 - No effect on Android: `.uno:GrafMode`, `.uno:GrafTransparence`, `GrafLuminance/Contrast`, `GrafFilter*`, `.uno:InsertObjectChart`, `.uno:InsertAnnotation`, `.uno:Line`, `.uno:InsertHorizontalRule` (no visible result).
+- Text boxes/shapes: LibreOffice reports `CALLBACK_CONTEXT_CHANGED` (39) with `...TextDocument DrawText` while the caret is inside a shape's text (`Draw` = shape merely selected); `inTextBox` mirrors that. A double click on the empty inside of a selected shape does not enter it, but `Enter` (key 1280) on a selected shape starts the text edit with the caret at the end (never send it when no shape is selected). A double click needs a first click at the same spot (`selectWordAt`). In shape text edit LO sends the new word selection and then an empty one: the overlay keeps the selection until the next tap/key (`selHoldUntil`). `setGraphicSelection` drags inside a text edit act as text selection: leave the edit with Escape (1281) first, wait ~200 ms, then drag.
 - Saving rewrites the whole file through LibreOffice (SmartArt/charts may change). Writes go to a new copy by default; overwriting the original is explicit.
 
 ## Engine setup
@@ -36,7 +37,7 @@ Run `scripts/fetch-engine.sh` once: downloads the TDF LibreOffice APK from F-Dro
 ## Commands
 - Build: `./gradlew :app:assembleDebug` (needs a full JDK via `org.gradle.java.home` in `~/.gradle/gradle.properties`).
 - Install: `adb install -r app/build/outputs/apk/debug/app-debug.apk`.
-- Debug-build adb hooks (extras on `com.matnotes.app/.MainActivity`): `--es uno <cmd> [--es unoargs <json>]`, `--es insert_image <path in app files dir>`, `--es shape <.uno:...>`, `--es link "text|url"`, `--es zoom <factor>`. Open a test file with `am start -a android.intent.action.VIEW -d file:///sdcard/Android/data/com.matnotes.app/files/<name> -t <docx mime>`.
+- Debug-build adb hooks (extras on `com.matnotes.app/.MainActivity`): `--es uno <cmd> [--es unoargs <json>]`, `--es insert_image <path in app files dir>`, `--es shape <.uno:...>`, `--es link "text|url"`, `--es zoom <factor>`, `--es dtap x,y` (double tap, view px), `--ei key <awt code>`, `--es mouse type,x,y,count`, `--ez dump true` (logs state to tag `MatNotesDump`; LO callbacks are logged to tag `MatNotesCb`). Open a test file with `am start -a android.intent.action.VIEW -d file:///sdcard/Android/data/com.matnotes.app/files/<name> -t <docx mime>`.
 
 ## Device testing rules
 - The test phone is the user's own phone. Before any scripted taps or `input text`, check the foreground app (`dumpsys activity activities | grep topResumedActivity`) and stop if it is not MatNotes: blind input can land in other apps (chats!).

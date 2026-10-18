@@ -258,6 +258,23 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
         focusTick++
     }
 
+    /** Drops the text selection overlay (rectangles, handles and the hold used against LibreOffice's empty updates). */
+    fun debugMouse(type: Int, at: Offset, count: Int) {
+        val x = twX(at.x).roundToInt(); val y = twY(at.y).roundToInt(); val sc = scale
+        edit { mouse(type, x, y, count, sc) }
+    }
+
+    fun dumpState() {
+        android.util.Log.d("MatNotesDump", "box_px=${graphic?.let { "${pxX(it.left).toInt()},${pxY(it.top).toInt() + 262} ${pxX(it.right).toInt()},${pxY(it.bottom).toInt() + 262}" }} inTB=$inTextBox graphic=$graphic img=$graphicIsImage cursor=$cursor vis=$cursorVisible sel=${selection.size} selStart=$selStart hold=${selHoldUntil > 0}")
+    }
+
+    private fun clearTextSelection() {
+        selHoldUntil = 0L
+        selection = emptyList()
+        selStart = null
+        selEnd = null
+    }
+
     fun click(at: Offset, count: Int = 1) {
         val g = graphic ?: if (inTextBox) lastGraphic else null
         if (g != null && !graphicIsImage && g.contains(twX(at.x), twY(at.y))) {
@@ -301,7 +318,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
 
     /**
      * First tap into a selected text box. A double click on the text enters it; on the empty inside of the box LibreOffice
-     * only selects the shape, so retry on the first text line and put the caret at the end.
+     * only selects the shape, so press Enter to start the text edit with the caret at the end.
      */
     private fun enterTextBox(at: Offset) {
         val s = scale
@@ -323,9 +340,9 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
                     edit { mouse(Document.MOUSE_EVENT_BUTTON_DOWN, x, y, 1, s); mouse(Document.MOUSE_EVENT_BUTTON_UP, x, y, 1, s) }
                 }
             } else {
-                val g = graphic ?: lastGraphic ?: return@postDelayed
-                dbl((g.left + 400f).roundToInt(), (g.top + 170f).roundToInt())
-                main.postDelayed({ if (inTextBox) edit { uno(".uno:GoToEndOfDoc") } }, 350)
+                // the double click only selected the shape: Enter on a selected shape starts its text, caret at the end
+                // (never with the body text active: Enter there would add a paragraph)
+                if (graphic != null && !graphicIsImage) edit { pressKey(Keys.RETURN) }
             }
         }, 300)
     }
@@ -452,6 +469,8 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     private var drag: Drag? = null
     private var dragStartTw = Offset.Zero
     private var dragRectH = 0f
+    private var bodyStarted = false
+    private var bodyReadyAt = 0L
     private var dragHandleTw = Offset.Zero
     private var dragPos = Offset.Zero
     private var dragHandleIdx = -1
@@ -493,11 +512,9 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
             }
             if (g.contains(twX(p.x), twY(p.y))) {
                 // hold and drag moves a picture, shape or text box
-                val t = Offset(twX(p.x), twY(p.y))
-                startDrag(Drag.GraphicBody, p, t, 0f)
-                markDirty()
-                val s = scale
-                edit { setGraphicSelection(Document.SET_GRAPHIC_SELECTION_START, t.x.roundToInt(), t.y.roundToInt(), s) }
+                // the move only starts after touch slop (dragTo), so a plain tap inside the box stays a tap
+                startDrag(Drag.GraphicBody, p, Offset(twX(p.x), twY(p.y)), 0f)
+                bodyStarted = false
                 return true
             }
         }
@@ -518,6 +535,8 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
         followCursor = false
     }
 
+    fun dragConsumesEvents(): Boolean = drag != Drag.GraphicBody || bodyStarted
+
     fun dragTo(p: Offset) {
         val kind = drag ?: return
         dragPos = p
@@ -531,6 +550,22 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
             }
             Drag.GraphicBody -> {
                 val g = graphic ?: return
+                if (!bodyStarted) {
+                    if (dist(p, Offset(pxX(dragStartTw.x), pxY(dragStartTw.y))) < 8f * density) return
+                    bodyStarted = true
+                    clearTextSelection()
+                    markDirty()
+                    val t = dragHandleTw; val sc = scale
+                    // inside the text edit LibreOffice would take the drag as a text selection: leave the edit first
+                    if (inTextBox) {
+                        edit { pressKey(Keys.ESCAPE) }
+                        bodyReadyAt = android.os.SystemClock.uptimeMillis() + 200
+                        main.postDelayed({ edit { setGraphicSelection(Document.SET_GRAPHIC_SELECTION_START, t.x.roundToInt(), t.y.roundToInt(), sc) } }, 200)
+                    } else {
+                        bodyReadyAt = 0L
+                        edit { setGraphicSelection(Document.SET_GRAPHIC_SELECTION_START, t.x.roundToInt(), t.y.roundToInt(), sc) }
+                    }
+                }
                 val d = cur - dragStartTw
                 preview = RectF(g.left + d.x, g.top + d.y, g.right + d.x, g.bottom + d.y)
             }
@@ -578,10 +613,12 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
         val delta = cur - dragStartTw
         when (kind) {
             Drag.GraphicBody -> {
+                if (!bodyStarted) { preview = null; return }
                 val pt = dragHandleTw + delta
                 preview = null
                 val s = scale
-                edit { setGraphicSelection(Document.SET_GRAPHIC_SELECTION_END, pt.x.roundToInt(), pt.y.roundToInt(), s) }
+                val wait = (bodyReadyAt - android.os.SystemClock.uptimeMillis()).coerceAtLeast(0L) + 30
+                main.postDelayed({ edit { setGraphicSelection(Document.SET_GRAPHIC_SELECTION_END, pt.x.roundToInt(), pt.y.roundToInt(), s) } }, wait)
             }
             Drag.GraphicHandle -> {
                 val pv = preview
@@ -616,7 +653,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
             CALLBACK_CONTEXT_CHANGED -> {
                 val was = inTextBox
                 inTextBox = payload.trim().endsWith("DrawText")
-                if (was && !inTextBox) { selHoldUntil = 0L }
+                if (was && !inTextBox) clearTextSelection()
             }
             Document.CALLBACK_CURSOR_VISIBLE -> cursorVisible = payload.trim() == "true"
             Document.CALLBACK_GRAPHIC_VIEW_SELECTION, Document.CALLBACK_REDLINE_TABLE_ENTRY_MODIFIED -> scheduleSettle()
@@ -635,6 +672,9 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
             Document.CALLBACK_GRAPHIC_SELECTION -> {
                 val r = parseRects(payload).firstOrNull()
                 graphic = r
+                // the box moved or was resized: selection rectangles and caret of the old position are stale
+                val old = lastGraphic
+                if (r != null && old != null && (old.left != r.left || old.top != r.top || old.right != r.right)) clearTextSelection()
                 if (r != null) lastGraphic = r
                 graphicIsImage = Regex("\"isWriterGraphic\"\\s*:\\s*true").containsMatchIn(payload)
                 if (pendingShapeMove && r != null) {
@@ -881,7 +921,8 @@ fun DocumentView(state: DocumentViewState, modifier: Modifier = Modifier) {
                         if (dragging) {
                             val ch = ev.changes.first()
                             state.dragTo(ch.position)
-                            ev.changes.forEach { it.consume() }
+                            // a body drag that has not passed touch slop yet is still a tap candidate
+                            if (state.dragConsumesEvents()) ev.changes.forEach { it.consume() }
                         } else {
                             val zoomChange = ev.calculateZoom()
                             val pan = ev.calculatePan()
