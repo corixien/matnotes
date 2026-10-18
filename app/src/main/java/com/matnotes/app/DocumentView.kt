@@ -281,7 +281,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
         val x = twX(at.x).roundToInt()
         val y = twY(at.y).roundToInt()
         val s = scale
-        selHoldUntil = android.os.SystemClock.uptimeMillis() + 1500
+        selHoldUntil = android.os.SystemClock.uptimeMillis() + 600_000
         edit { mouse(Document.MOUSE_EVENT_BUTTON_DOWN, x, y, 2, s) }
         main.postDelayed({ edit { mouse(Document.MOUSE_EVENT_BUTTON_UP, x, y, 1, s) } }, 120)
     }
@@ -303,7 +303,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     }
 
     fun typeText(t: String) { selHoldUntil = 0L; markDirty(); followCursor = true; edit { type(t) } }
-    fun pressKey(code: Int) { if (code == Keys.BACKSPACE || code == Keys.DELETE || code == Keys.RETURN) markDirty(); followCursor = true; edit { pressKey(code) } }
+    fun pressKey(code: Int) { selHoldUntil = 0L; if (code == Keys.BACKSPACE || code == Keys.DELETE || code == Keys.RETURN) markDirty(); followCursor = true; edit { pressKey(code) } }
     fun uno(cmd: String, args: String = "") { if (cmd != ".uno:Copy") markDirty(); edit { uno(cmd, args) } }
     fun markDirty() { dirty = true }
 
@@ -583,7 +583,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
                 // inside a text box LibreOffice reports the new word selection and then an empty one although the
                 // selection is still active: keep showing it for a moment after a selection gesture
                 if (rects.isEmpty() && inTextBox && selection.isNotEmpty() && now < selHoldUntil) return
-                if (rects.isNotEmpty() && inTextBox) selHoldUntil = now + 1200
+                if (rects.isNotEmpty() && inTextBox) selHoldUntil = now + 600_000
                 selection = rects
                 if (finding) selection.firstOrNull()?.let { scrollToRect(it) }
             }
