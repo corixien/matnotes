@@ -16,7 +16,7 @@ jobs:
       - name: Android SDK
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;35.0.0"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;35.0.0" "ndk;29.0.14206865" "cmake;3.31.6"
       - run: ./scripts/fetch-engine.sh
       - name: Decode keystore
         if: ${{ env.KS_B64 != '' }}

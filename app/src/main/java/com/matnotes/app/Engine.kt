@@ -151,6 +151,8 @@ class LoDocument(private val doc: Document, val file: File) {
         doc.postKeyEvent(Document.KEY_EVENT_RELEASE, 0, awtKey)
     }
 
+    fun commandValues(command: String): String? = doc.getCommandValues(command)
+
     fun uno(command: String, args: String = "") = doc.postUnoCommand(command, args.ifEmpty { null }, false)
 
     fun setTextSelection(type: Int, xTw: Int, yTw: Int) = doc.setTextSelection(type, xTw, yTw)

@@ -6,6 +6,7 @@ Android app (phone + tablet) to open, edit and export Word documents (`.docx`) w
 
 - **Open:** file picker, "Open with", share target, recent files, `Documents/MatNotes` list on the start screen. New blank document with Word defaults (A4, Calibri 11 pt, 2.54 cm margins, 8 pt paragraph spacing).
 - **Edit:** typing (IME + hardware keyboard + Word shortcuts), selection handles, floating cut/copy/paste bar, find and replace, undo/redo, format painter.
+- **Spelling check** (Review tab): detects the language from the text (about 47 dictionaries: all major European languages plus Turkish, Vietnamese, Russian, ...), you can change it, then step through the mistakes with suggestions; replaces every occurrence. Offline, Hunspell.
 - **Ribbon** in Word order (Home, Insert, Layout, References, Review, View, contextual Picture/Shape tab) with grouped icon buttons, editable font and size boxes, colour pickers, styles gallery, change case, paragraph shading, lists, alignment, line spacing.
 - **Tables:** speech-bubble buttons at the table: "+" at every column/row border inserts exactly there, "-" on each column/row deletes it; drag a border line to change column width or row height; contextual Table tab with merge/split, cell colour, fit/even rows and columns, vertical alignment, border presets (all, outside, inside, none, single edges; line style, width, colour), 8 table looks (grid, blue, green, orange, striped, minimal, dark, ...) and delete table.
 - **Text boxes:** tap enters with the caret at the end (or at the tapped spot), double tap selects a word, hold and drag moves the box. Pages sit in a grey margin, so zooming out works on every side.
@@ -27,7 +28,7 @@ LibreOffice rewrites the whole file on save, so complex content (SmartArt, chart
 | Tables | per-cell borders, Word's built-in table styles, dragging the outer edges; borders and looks reload the document (undo history resets) |
 | Layout | columns, hyphenation, line numbers, watermark, page colour |
 | References | table of contents, captions, citations, index |
-| Review | comments, thesaurus, translate, protect |
+| Review | comments, thesaurus, translate, protect, red wavy underlines while typing (spelling is a separate check) |
 | View | ruler, gridlines, navigation pane, multi-page and reading mode |
 | Pictures | colour effects, filters, transparency, crop, borders, shadows (the LibreOffice commands do nothing on Android) |
 | Fonts | Microsoft fonts cannot be bundled. Metric clones render exactly (Calibri, Cambria, Arial, Arial Narrow, Times New Roman, Courier New); other Word font names are kept in the file but shown with a stand-in |
@@ -36,11 +37,11 @@ Only arm64 devices (the LibreOffice engine is bundled for arm64 only).
 
 ## Stack
 
-Kotlin, Jetpack Compose, LibreOfficeKit (JNI, prebuilt libs taken from the official TDF LibreOffice Android APK), coroutines. No backend. Distribution: APK (GitHub Releases planned).
+Kotlin, Jetpack Compose, LibreOfficeKit (JNI, prebuilt libs taken from the official TDF LibreOffice Android APK), coroutines. No backend. Distribution: signed APK on GitHub Releases (tag `v*`, see `SIGNING.md`).
 
 ## Develop
 
-Requirements: full JDK 21 (with `javac`), Android SDK (platform 37, build-tools 35), `adb` for device runs.
+Requirements: full JDK 21 (with `javac`), Android SDK (platform 37, build-tools 35, NDK 29.0.14206865, CMake 3.31.6), `adb` for device runs.
 
 ```bash
 ./scripts/fetch-engine.sh          # once: LibreOffice engine + fonts into app/src/main (gitignored)
@@ -58,4 +59,4 @@ Put private test `.docx` files in `samples/` (gitignored). Never commit them.
 
 ## License notes
 
-LibreOffice (MPL-2.0) engine and JNI classes (`org.libreoffice.kit`), DejaVu (Bitstream Vera licence), Comic Neue and Anton (SIL OFL), Carlito/Caladea/Liberation (OFL/GPL with font exception) are bundled at build time and not committed.
+Hunspell (MPL 1.1 / GPL 2 / LGPL 2.1, `app/src/main/cpp/hunspell`) and its dictionaries (each under its own open-source licence, license file next to it in the APK assets), LibreOffice (MPL-2.0) engine and JNI classes (`org.libreoffice.kit`), DejaVu (Bitstream Vera licence), Comic Neue and Anton (SIL OFL), Carlito/Caladea/Liberation (OFL/GPL with font exception) are bundled at build time and not committed.

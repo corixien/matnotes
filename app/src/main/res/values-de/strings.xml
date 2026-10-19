@@ -247,4 +247,21 @@
     <string name="tl_striped">Gestreift</string>
     <string name="tl_minimal">Minimal</string>
     <string name="tl_dark">Dunkel</string>
+    <string name="spell_title">Rechtschreibung</string>
+    <string name="spell_language">Sprache</string>
+    <string name="spell_detecting">Sprache wird erkannt…</string>
+    <string name="spell_start">Prüfung starten</string>
+    <string name="spell_checking">Wird geprüft…</string>
+    <string name="spell_none">Keine Rechtschreibfehler gefunden.</string>
+    <string name="spell_word_of">Wort %1$d von %2$d</string>
+    <string name="spell_times">%1$d× im Dokument</string>
+    <string name="spell_no_suggestions">Keine Vorschläge</string>
+    <string name="spell_ignore">Ignorieren</string>
+    <string name="spell_add">Zum Wörterbuch</string>
+    <string name="spell_done">Rechtschreibprüfung abgeschlossen.</string>
+    <string name="spell_error">Das Wörterbuch konnte nicht geladen werden.</string>
+    <string name="spell_text_error">Der Text des Dokuments konnte nicht gelesen werden.</string>
+    <string name="spell_pick_language">Sprache wählen</string>
+    <string name="close">Schließen</string>
+    <string name="spell_detected">Aus dem Text erkannt</string>
 </resources>

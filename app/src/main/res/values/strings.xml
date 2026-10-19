@@ -247,4 +247,21 @@
     <string name="tl_striped">Striped</string>
     <string name="tl_minimal">Minimal</string>
     <string name="tl_dark">Dark</string>
+    <string name="spell_title">Spelling</string>
+    <string name="spell_language">Language</string>
+    <string name="spell_detecting">Detecting language…</string>
+    <string name="spell_start">Start check</string>
+    <string name="spell_checking">Checking…</string>
+    <string name="spell_none">No spelling mistakes found.</string>
+    <string name="spell_word_of">Word %1$d of %2$d</string>
+    <string name="spell_times">%1$d× in the document</string>
+    <string name="spell_no_suggestions">No suggestions</string>
+    <string name="spell_ignore">Ignore</string>
+    <string name="spell_add">Add to dictionary</string>
+    <string name="spell_done">Spelling check finished.</string>
+    <string name="spell_error">The dictionary could not be loaded.</string>
+    <string name="spell_text_error">The document text could not be read.</string>
+    <string name="spell_pick_language">Choose language</string>
+    <string name="close">Close</string>
+    <string name="spell_detected">Detected from the text</string>
 </resources>

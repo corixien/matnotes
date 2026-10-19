@@ -207,7 +207,7 @@ private fun StartTab(state: DocumentViewState) {
         Column {
             Row {
                 IconBtn(enabled = enabled(".uno:Undo"), onClick = { state.uno(".uno:Undo") }) { Glyph("↶", 20) }
-                IconBtn(enabled = enabled(".uno:Redo"), onClick = { state.uno(".uno:Redo") }) { Glyph("↷", 20) }
+                IconBtn(enabled = state.redoEnabled(), onClick = { state.uno(".uno:Redo") }) { Glyph("↷", 20) }
             }
             Row {
                 IconBtn(enabled = enabled(".uno:Cut"), onClick = { state.uno(".uno:Cut") }) { Glyph("✂", 17) }
@@ -422,7 +422,7 @@ private fun ReviewTab(state: DocumentViewState) {
     val f = state.format
     val context = androidx.compose.ui.platform.LocalContext.current
     Group(stringResource(R.string.g_proofing)) {
-        BigBtn(stringResource(R.string.spell_check), onClick = { state.uno(".uno:SpellOnline") }) { Glyph("ABC✓", 14) }
+        BigBtn(stringResource(R.string.spell_check), onClick = { state.wantKeyboard = false; state.spelling = true }) { Glyph("ABC✓", 14) }
         BigBtn(stringResource(R.string.word_count), onClick = {
             android.widget.Toast.makeText(context, f[".uno:StateWordCount"] ?: "–", android.widget.Toast.LENGTH_LONG).show()
         }) { Glyph("123", 18) }

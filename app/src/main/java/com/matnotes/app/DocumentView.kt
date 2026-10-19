@@ -127,6 +127,8 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     var ribbonTabRequest by mutableIntStateOf(-1)
     var focusTick by mutableIntStateOf(0) // bump to move focus back to the document input
     var finding by mutableStateOf(false)
+    /** The spelling panel replaces the ribbon while this is on. */
+    var spelling by mutableStateOf(false)
 
     private val cache = object : LruCache<TileKey, Tile>(96 * 1024 * 1024) {
         override fun sizeOf(key: TileKey, value: Tile) = value.bmp.byteCount
@@ -314,6 +316,7 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
         }
         wantKeyboard = true
         focusTick++
+        main.postDelayed({ ensureCursor() }, 500)
         // a tap that only selected a text box / shape (no caret): go on into its text, like a text box in Word
         if (count == 1 && !inTextBox) main.postDelayed({
             val b = graphic
@@ -321,6 +324,23 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
         }, 400)
         // a tap on the empty part of a text box leaves its edit mode: re-enter with the caret at the end
         if (inTextBox && count == 1) main.postDelayed({ if (!inTextBox && android.os.SystemClock.uptimeMillis() > recoverOffUntil) enterTextBox(at) }, 350)
+    }
+
+    /**
+     * LibreOffice sends a cursor callback only when the caret moves, so a fresh or empty document (caret already at
+     * the tapped spot) never shows one. Nudge the caret; in an empty document there is nothing to step over, so type
+     * a character and undo it. Leaves no trace in the undo history and does not mark the document changed.
+     */
+    fun ensureCursor() {
+        if (cursor != null || !editing || graphic != null || selection.isNotEmpty()) return
+        val seen = cursorEvents
+        edit { uno(".uno:CharRight"); uno(".uno:CharLeft") }
+        main.postDelayed({
+            if (cursor == null && cursorEvents == seen && editing && graphic == null && selection.isEmpty()) {
+                edit { type("x") }
+                main.postDelayed({ ghostRedo = true; edit { uno(".uno:Undo") } }, 250) // input is applied asynchronously: undo only after the key landed
+            }
+        }, 300)
     }
 
     /** Double click inside a text box. The button-up of a double click clears the word selection there, so send none. */
@@ -374,8 +394,40 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
 
     fun typeText(t: String) { selHoldUntil = 0L; markDirty(); followCursor = true; edit { type(t) } }
     fun pressKey(code: Int) { selHoldUntil = 0L; if (code == Keys.BACKSPACE || code == Keys.DELETE || code == Keys.RETURN) markDirty(); followCursor = true; edit { pressKey(code) } }
+    /** Plain text of the document (exported through LibreOffice), or null when the export fails. */
+    suspend fun documentText(cacheDir: java.io.File): String? = withContext(Engine.dispatcher) {
+        val f = java.io.File(cacheDir, "spellcheck.txt")
+        try { if (doc.saveAs(f, "txt")) f.readText() else null } finally { f.delete() }
+    }
+
+    private fun wordSearch(word: String, repl: String, command: Int): String {
+        fun j(v: String) = v.replace("\\", "\\\\").replace("\"", "\\\"")
+        fun a(n: String, t: String, v: String) = "\"SearchItem.$n\":{\"type\":\"$t\",\"value\":\"$v\"}"
+        // whole word, case-sensitive (TransliterateFlags 0), regular expression (AlgorithmType2 2)
+        return listOf(
+            a("SearchString", "string", j("\\b" + word + "\\b")),
+            a("ReplaceString", "string", j(repl)),
+            a("Command", "long", "$command"),
+            a("AlgorithmType2", "short", "2"),
+            a("TransliterateFlags", "long", "0"),
+        ).joinToString(",", "{", "}")
+    }
+
+    /** Selects the first occurrence of [word] and scrolls to it (spelling check). */
+    fun findWord(word: String) { followCursor = true; edit { uno(".uno:ExecuteSearch", wordSearch(word, "", 0)) } }
+
+    /** Replaces every occurrence of the whole word [from] by [to] (spelling check). */
+    fun replaceWord(from: String, to: String) { markDirty(); edit { uno(".uno:ExecuteSearch", wordSearch(from, to, 3)) } }
+
+    /** Debug: logs the answer of getCommandValues. */
+    fun logCommandValues(cmd: String) { doc.post { android.util.Log.d("MatNotesDump", "cmdvalues $cmd = ${commandValues(cmd)}") } }
+
     fun uno(cmd: String, args: String = "") { if (cmd != ".uno:Copy") markDirty(); edit { uno(cmd, args) } }
-    fun markDirty() { dirty = true }
+    fun markDirty() { dirty = true; ghostRedo = false }
+
+    /** True while the only redo entry is the probe character of [ensureCursor]. */
+    private var ghostRedo by mutableStateOf(false)
+    fun redoEnabled() = format[".uno:Redo"] != "disabled" && !ghostRedo
 
     /**
      * LibreOffice inserts a new shape centred on the page's top-left corner. Insert, then move it to the middle of
@@ -450,10 +502,10 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
 
     fun graphicBottom(): Float = pxY(graphic?.bottom ?: 0f)
 
-    /** Character formatting: like Word, applies to the word under the cursor when nothing is selected. */
+    /** Character formatting: applies to the selection, or to what is typed next when nothing is selected. */
     fun charFormat(cmd: String, args: String = "") {
         markDirty()
-        if (selection.isEmpty() && graphic == null) edit { uno(".uno:SelectWord"); uno(cmd, args) } else edit { uno(cmd, args) }
+        edit { uno(cmd, args) }
     }
 
     /** Link on the selection, or at the cursor: type [text], select it, then apply the hyperlink. */
@@ -488,7 +540,14 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
     fun zoomPercent(xdpi: Float): Int = if (xdpi <= 0f) 100 else (1440f * scale / xdpi * 100f).roundToInt()
 
     fun zoomBy(f: Float) = transform(Offset(viewSize.width / 2f, viewSize.height / 2f), Offset.Zero, f)
-    fun fitWidth() = transform(Offset(viewSize.width / 2f, viewSize.height / 2f), Offset.Zero, 1f / zoom)
+    /** The current page fills the width with the same grey gap on left, right and top. */
+    fun fitWidth() {
+        val pg = layout.pages.getOrNull(currentPage() - 1) ?: layout.pages.firstOrNull() ?: return
+        if (viewSize.width == 0 || base == 0f || pg.w == 0) return
+        val gap = 12f * density
+        zoom = ((viewSize.width - 2 * gap) / (pg.w * base)).coerceIn(MIN_ZOOM, MAX_ZOOM)
+        offset = clamp(Offset(gap - pg.x * scale, gap - pg.y * scale))
+    }
 
     // ---- drag handling for selection handles / graphics ----
     private var drag: Drag? = null

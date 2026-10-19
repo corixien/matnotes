@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.22)
+project(mnspell CXX)
+set(CMAKE_CXX_STANDARD 17)
+file(GLOB HUNSPELL_SRC hunspell/*.cxx)
+add_library(mnspell SHARED spell_jni.cpp ${HUNSPELL_SRC})
+target_compile_definitions(mnspell PRIVATE HUNSPELL_STATIC)
+target_include_directories(mnspell PRIVATE hunspell)
+target_link_libraries(mnspell log)

@@ -177,6 +177,7 @@ class MainActivity : ComponentActivity() {
             i?.getStringExtra("link")?.let { l ->
                 val (t, u) = l.split('|'); current?.state?.insertLink(t, u); return
             }
+            i?.getStringExtra("cmdvalues")?.let { c -> current?.state?.logCommandValues(c); return }
             i?.getStringExtra("uno")?.let { cmd ->
                 current?.state?.uno(cmd, i.getStringExtra("unoargs").orEmpty())
                 return

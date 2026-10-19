@@ -198,6 +198,10 @@ fun ViewerScreen(
         val v = input ?: return@LaunchedEffect
         if (state.editing && state.wantKeyboard) v.showKeyboard() else v.hideKeyboard()
     }
+    LaunchedEffect(state.editing) {
+        if (!state.editing) state.spelling = false
+        if (state.editing) { kotlinx.coroutines.delay(600); state.ensureCursor() }
+    }
     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))) {
         TopBar(title, state, actions)
         Box(Modifier.weight(1f)) {
@@ -210,7 +214,7 @@ fun ViewerScreen(
             state.tick
             FastScroller(state, Modifier.align(Alignment.CenterEnd))
             if (state.editing) {
-                SelectionToolbar(state)
+                if (!state.spelling) SelectionToolbar(state)
                 GraphicToolbar(state)
             }
             ZoomIndicator(state, Modifier.align(Alignment.TopCenter).padding(top = 12.dp))
@@ -230,7 +234,7 @@ fun ViewerScreen(
             }
             if (busy) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         }
-        if (state.editing) Ribbon(state, actions.onPickImage, actions.onPageSetup)
+        if (state.editing) { if (state.spelling) SpellPanel(state) else Ribbon(state, actions.onPickImage, actions.onPageSetup) }
     }
 }
 
@@ -255,7 +259,7 @@ private fun TopBar(title: String, state: DocumentViewState, actions: ViewerActio
             }
             if (state.editing) {
                 BarButton({ state.uno(".uno:Undo") }, enabled = f[".uno:Undo"] != "disabled") { Text("↶", fontSize = 21.sp) }
-                BarButton({ state.uno(".uno:Redo") }, enabled = f[".uno:Redo"] != "disabled") { Text("↷", fontSize = 21.sp) }
+                BarButton({ state.uno(".uno:Redo") }, enabled = state.redoEnabled()) { Text("↷", fontSize = 21.sp) }
                 BarButton(actions.onSave) { SaveIcon() }
                 BarButton({ state.editing = false; state.wantKeyboard = false }) {
                     CheckIcon(MaterialTheme.colorScheme.primary)

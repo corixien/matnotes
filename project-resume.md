@@ -41,10 +41,14 @@ Untested on device: Table-tab border presets (all/outside/inside/none/single edg
 Known gaps: no cell-level borders, no table styles from Word templates, no column/row drag for outer edges, comments, table of contents, SmartArt creation, charts, WordArt.
 
 ## 7. Next ideas
-Signed release pipeline (GitHub Actions + Releases), apply and verify the remaining border presets, tablet layout polish, comments, table of contents (needs a dialog-free path), more shape formatting, comments, table of contents.
+Apply and verify the remaining border presets, tablet layout polish, comments, table of contents (needs a dialog-free path), more shape formatting, comments, table of contents (needs a dialog-free path).
 
-## 2026-10-19 changes
-Viewer has one pencil button (top bar; FAB removed). Selection toolbar 36 dp (was 44). Release pipeline: `.github/workflows/release.yml` builds a signed APK on tag `v*` and attaches it to a GitHub Release; secrets `MATNOTES_KEYSTORE_B64`, `MATNOTES_KEYSTORE_PASSWORD`, `MATNOTES_KEY_ALIAS`, `MATNOTES_KEY_PASSWORD` (unsigned if absent). Tested 2026-10-19: tag `v0.1.0` produced a Release with `matnotes-v0.1.0.apk` (94 MB). Re-run for the same commit: `gh run rerun <id>`; new commit: delete and re-push the tag; signing config in `app/build.gradle.kts` reads `MATNOTES_KEYSTORE*` env vars. Not device-tested: phone was in Settings (foreground rule), so border presets, toolbar height and pencil change are unverified. Not started: tablet polish, comments, table of contents.
+## 2026-10-19 changes (v0.2.0)
+- Release pipeline: tag `v*` -> `.github/workflows/release.yml` -> signed APK on a GitHub Release. Always the same keystore, rules in `SIGNING.md`. Secrets set by the owner. The phone has the signed release app; debug builds are `com.matnotes.app.debug` (installs next to it; helpers in `scripts/devtest-helpers.sh` use it).
+- Caret shows in fresh/empty documents (`ensureCursor`), character formats apply from the caret on (no word selection), one pencil button in the viewer, slimmer selection toolbar (hidden during the spelling check), "Seitenbreite" = same grey gap left/right/top (`fitWidth`).
+- Spelling check (Review tab): own Hunspell (NDK, `cpp/`) + 47 bundled dictionaries (`scripts/fetch-dictionaries.sh`), language detection, change-language dialog, per-word suggestions, replace all. Details and why not LibreOffice's own check: `AGENTS.md`. Missing languages: Finnish, Indonesian, Maltese, Albanian (no Hunspell package).
+- Verified on the phone: caret, bold from caret, fit width, spelling flow (German and English detected, suggestion replaced all occurrences, selection toolbar hidden). Untested: Table-tab border presets, tablet layout.
+- Not started: comments, table of contents.
 
 ## Maintenance rules
 Update this file when structure, commands, invariants or state change. Bump "Last updated". Keep it short enough to read in one go.
