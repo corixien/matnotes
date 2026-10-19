@@ -1,0 +1,31 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - uses: android-actions/setup-android@v3
+      - run: ./scripts/fetch-engine.sh
+      - name: Decode keystore
+        if: ${{ env.KS_B64 != '' }}
+        env: { KS_B64: "${{ secrets.MATNOTES_KEYSTORE_B64 }}" }
+        run: echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+      - name: Build
+        env:
+          MATNOTES_KEYSTORE_PASSWORD: ${{ secrets.MATNOTES_KEYSTORE_PASSWORD }}
+          MATNOTES_KEY_ALIAS: ${{ secrets.MATNOTES_KEY_ALIAS }}
+          MATNOTES_KEY_PASSWORD: ${{ secrets.MATNOTES_KEY_PASSWORD }}
+        run: |
+          [ -f "$RUNNER_TEMP/release.jks" ] && export MATNOTES_KEYSTORE="$RUNNER_TEMP/release.jks"
+          ./gradlew :app:assembleRelease
+          mkdir -p dist
+          cp app/build/outputs/apk/release/*.apk "dist/matnotes-${GITHUB_REF_NAME}.apk"
+      - uses: softprops/action-gh-release@v2
+        with: { files: "dist/*.apk", generate_release_notes: true }

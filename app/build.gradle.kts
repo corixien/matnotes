@@ -16,6 +16,21 @@ android {
         ndk { abiFilters += "arm64-v8a" }
     }
 
+    val ksFile = System.getenv("MATNOTES_KEYSTORE")
+    signingConfigs {
+        if (ksFile != null) create("release") {
+            storeFile = file(ksFile)
+            storePassword = System.getenv("MATNOTES_KEYSTORE_PASSWORD")
+            keyAlias = System.getenv("MATNOTES_KEY_ALIAS")
+            keyPassword = System.getenv("MATNOTES_KEY_PASSWORD")
+        }
+    }
+    buildTypes {
+        release {
+            if (ksFile != null) signingConfig = signingConfigs.getByName("release")
+        }
+    }
+
     packaging {
         jniLibs { useLegacyPackaging = true }
     }

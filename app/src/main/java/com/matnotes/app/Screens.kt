@@ -227,10 +227,6 @@ fun ViewerScreen(
                         style = MaterialTheme.typography.labelLarge,
                     )
                 }
-                ExtendedFloatingActionButton(
-                    onClick = { state.editing = true },
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-                ) { Text(stringResource(R.string.edit)) }
             }
             if (busy) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         }
@@ -353,7 +349,7 @@ private fun SelectionToolbar(state: DocumentViewState) {
     val anchor: Offset = state.selectionAnchor() ?: return
     val density = LocalDensity.current
     val barW = 360.dp
-    val barH = 44.dp
+    val barH = 36.dp
     val viewW = state.viewSize.width
     with(density) {
         val x = (anchor.x - barW.toPx() / 2f).roundToInt().coerceIn(8.dp.roundToPx(), max(8.dp.roundToPx(), viewW - barW.roundToPx() - 8.dp.roundToPx()))
@@ -397,7 +393,7 @@ private fun GraphicToolbar(state: DocumentViewState) {
     val anchor = state.graphicAnchor() ?: return
     val density = LocalDensity.current
     val barW = 360.dp
-    val barH = 44.dp
+    val barH = 36.dp
     with(density) {
         val x = (anchor.x - barW.toPx() / 2f).roundToInt()
             .coerceIn(8.dp.roundToPx(), max(8.dp.roundToPx(), state.viewSize.width - barW.roundToPx() - 8.dp.roundToPx()))

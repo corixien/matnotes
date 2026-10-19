@@ -2,7 +2,7 @@
 
 > Instruction for Claude: read this whole file first, then every file under "Must read". Do not change anything before you understand the project. Keep this file current (see "Maintenance rules"). Answer the owner in German, short and technical.
 
-Last updated: 2026-10-18
+Last updated: 2026-10-19
 
 ## 1. What this project is
 MatNotes: Android app (phone + tablet, arm64 only) to open, edit and export `.docx` with a Word-like mobile UI. Priority 1: layout fidelity. Engine: LibreOfficeKit (prebuilt libs from the official TDF LibreOffice APK). Local only, no accounts, DE/EN. Repo `corixien/matnotes` (public), push straight to `main`, never PRs. Stage: working app on the owner's phone, feature work and polish. Package `com.matnotes.app`, Kotlin + Jetpack Compose.
@@ -41,7 +41,10 @@ Untested on device: Table-tab border presets (all/outside/inside/none/single edg
 Known gaps: no cell-level borders, no table styles from Word templates, no column/row drag for outer edges, comments, table of contents, SmartArt creation, charts, WordArt.
 
 ## 7. Next ideas
-Signed release pipeline (GitHub Actions + Releases), apply and verify the remaining border presets, tablet layout polish, comments, table of contents (needs a dialog-free path), more shape formatting, one pencil button in the viewer (today: pencil icon and "Bearbeiten" button), selection toolbar covering text.
+Signed release pipeline (GitHub Actions + Releases), apply and verify the remaining border presets, tablet layout polish, comments, table of contents (needs a dialog-free path), more shape formatting, comments, table of contents.
+
+## 2026-10-19 changes
+Viewer has one pencil button (top bar; FAB removed). Selection toolbar 36 dp (was 44). Release pipeline: `.github/workflows/release.yml` builds a signed APK on tag `v*` and attaches it to a GitHub Release; secrets `MATNOTES_KEYSTORE_B64`, `MATNOTES_KEYSTORE_PASSWORD`, `MATNOTES_KEY_ALIAS`, `MATNOTES_KEY_PASSWORD` (unsigned if absent); signing config in `app/build.gradle.kts` reads `MATNOTES_KEYSTORE*` env vars. Not device-tested: phone was in Settings (foreground rule), so border presets, toolbar height and pencil change are unverified. Not started: tablet polish, comments, table of contents.
 
 ## Maintenance rules
 Update this file when structure, commands, invariants or state change. Bump "Last updated". Keep it short enough to read in one go.
