@@ -20,7 +20,7 @@ jobs:
       - run: ./scripts/fetch-engine.sh
       - name: Decode keystore
         if: ${{ env.KS_B64 != '' }}
-        run: echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+        run: echo "$KS_B64" | tr -d " \r\n\"" | base64 -d > "$RUNNER_TEMP/release.jks"
       - name: Build
         env:
           MATNOTES_KEYSTORE_PASSWORD: ${{ secrets.MATNOTES_KEYSTORE_PASSWORD }}
