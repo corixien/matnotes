@@ -7,6 +7,8 @@ permissions:
 jobs:
   apk:
     runs-on: ubuntu-latest
+    env:
+      KS_B64: ${{ secrets.MATNOTES_KEYSTORE_B64 }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -18,7 +20,6 @@ jobs:
       - run: ./scripts/fetch-engine.sh
       - name: Decode keystore
         if: ${{ env.KS_B64 != '' }}
-        env: { KS_B64: "${{ secrets.MATNOTES_KEYSTORE_B64 }}" }
         run: echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
       - name: Build
         env:
