@@ -210,11 +210,11 @@ private fun StartTab(state: DocumentViewState) {
                 IconBtn(enabled = state.redoEnabled(), onClick = { state.uno(".uno:Redo") }) { Glyph("↷", 20) }
             }
             Row {
-                IconBtn(enabled = enabled(".uno:Cut"), onClick = { state.uno(".uno:Cut") }) { Glyph("✂", 17) }
-                IconBtn(enabled = enabled(".uno:Copy"), onClick = { state.uno(".uno:Copy") }) { Ic { copyIcon(it) } }
+                IconBtn(enabled = enabled(".uno:Cut"), onClick = { state.copy(cut = true) }) { Glyph("✂", 17) }
+                IconBtn(enabled = enabled(".uno:Copy"), onClick = { state.copy() }) { Ic { copyIcon(it) } }
             }
         }
-        BigBtn(stringResource(R.string.paste), enabled = enabled(".uno:Paste"), onClick = { state.uno(".uno:Paste") }) { Ic(26.dp) { clipboardIcon(it) } }
+        BigBtn(stringResource(R.string.paste), onClick = { state.paste() }) { Ic(26.dp) { clipboardIcon(it) } }
         BigBtn(stringResource(R.string.format_painter), onClick = { state.uno(".uno:FormatPaintbrush") }) { Glyph("🖌", 20) }
     }
     Group(stringResource(R.string.g_font)) {
@@ -571,8 +571,8 @@ private fun PictureTab(state: DocumentViewState) {
         }
     }
     Group(stringResource(R.string.g_edit_picture), last = true) {
-        BigBtn(stringResource(R.string.cut), onClick = { state.uno(".uno:Cut") }) { Glyph("✂", 20) }
-        BigBtn(stringResource(R.string.copy), onClick = { state.uno(".uno:Copy") }) { Ic(26.dp) { copyIcon(it) } }
+        BigBtn(stringResource(R.string.cut), onClick = { state.copy(cut = true) }) { Glyph("✂", 20) }
+        BigBtn(stringResource(R.string.copy), onClick = { state.copy() }) { Ic(26.dp) { copyIcon(it) } }
         BigBtn(stringResource(R.string.delete), onClick = { state.uno(".uno:Delete") }) { Glyph("🗑", 20) }
     }
 }

@@ -374,7 +374,14 @@ private fun SelectionToolbar(state: DocumentViewState) {
                     R.string.select_all_short to ".uno:SelectAll",
                 ).forEach { (label, cmd) ->
                     Box(
-                        Modifier.weight(1f).fillMaxSize().clickable { state.uno(cmd) },
+                        Modifier.weight(1f).fillMaxSize().clickable {
+                            when (cmd) {
+                                ".uno:Cut" -> state.copy(cut = true)
+                                ".uno:Copy" -> state.copy()
+                                ".uno:Paste" -> state.paste()
+                                else -> state.uno(cmd)
+                            }
+                        },
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
@@ -411,8 +418,8 @@ private fun GraphicToolbar(state: DocumentViewState) {
         ) {
             Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
                 listOf(
-                    R.string.cut to { state.uno(".uno:Cut") },
-                    R.string.copy to { state.uno(".uno:Copy") },
+                    R.string.cut to { state.copy(cut = true) },
+                    R.string.copy to { state.copy() },
                     R.string.rotate to { state.uno(".uno:RotateRight") },
                     R.string.delete to { state.uno(".uno:Delete") },
                 ).forEach { (label, act) ->

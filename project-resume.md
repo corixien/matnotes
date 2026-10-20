@@ -50,5 +50,7 @@ Apply and verify the remaining border presets, tablet layout polish, comments, t
 - Verified on the phone: caret, bold from caret, fit width, spelling flow (German and English detected, suggestion replaced all occurrences, selection toolbar hidden). Untested: Table-tab border presets, tablet layout.
 - Not started: comments, table of contents.
 
+- 2026-10-20 (v0.2.1): cut/copy/paste use the phone clipboard (text + HTML out; picture, HTML, text in), Start-tab paste button works. Details in `AGENTS.md`.
+
 ## Maintenance rules
 Update this file when structure, commands, invariants or state change. Bump "Last updated". Keep it short enough to read in one go.

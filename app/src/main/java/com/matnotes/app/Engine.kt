@@ -165,6 +165,8 @@ class LoDocument(private val doc: Document, val file: File) {
     }
 
     fun selectedText(): String? = doc.getTextSelection("text/plain;charset=utf-8")
+    fun selectionAs(mime: String): String? = doc.getTextSelection(mime)
+    fun pasteData(mime: String, data: String): Boolean = doc.paste(mime, data)
 
     /** Exports to [out] in the LibreOffice filter [format] (e.g. "pdf", "docx"). */
     fun saveAs(out: File, format: String): Boolean {

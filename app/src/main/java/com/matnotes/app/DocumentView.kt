@@ -508,6 +508,75 @@ class DocumentViewState(val doc: LoDocument, private val scope: CoroutineScope, 
         edit { uno(cmd, args) }
     }
 
+    // ---- system clipboard ----
+    /** Set by the activity: the application context (clipboard) and the picture insertion. */
+    var appContext: android.content.Context? = null
+    var onPasteImage: ((android.net.Uri) -> Unit)? = null
+
+    private fun clipboard() = appContext?.getSystemService(android.content.ClipboardManager::class.java)
+    private fun clipStamp(): Long = clipboard()?.primaryClipDescription?.timestamp ?: 0L
+
+    /**
+     * Copy / cut through the phone's clipboard (plain text + HTML, so other apps can paste it). LibreOffice's own
+     * clipboard is filled too: pasting what was copied here goes through it, which keeps tables, pictures and shapes
+     * exact (see [paste]).
+     */
+    fun copy(cut: Boolean = false) {
+        if (cut) markDirty()
+        val cmd = if (cut) ".uno:Cut" else ".uno:Copy"
+        val graphicOnly = graphic != null && !inTextBox
+        doc.post {
+            val plain = if (graphicOnly) null else selectedText()
+            val html = if (plain.isNullOrEmpty()) null else selectionAs("text/html")
+            uno(cmd)
+            refreshLayout()
+            main.post {
+                this@DocumentViewState.layout = doc.layout
+                markStale(nearCursor()); scheduleSettle()
+                val cm = clipboard()
+                if (cm != null && !plain.isNullOrEmpty()) {
+                    val clip = if (html.isNullOrEmpty()) android.content.ClipData.newPlainText("MatNotes", plain)
+                    else android.content.ClipData.newHtmlText("MatNotes", plain, html)
+                    runCatching { cm.setPrimaryClip(clip) }
+                }
+                // what is on the phone clipboard right now came from us (or, for a picture, is older than the copy)
+                ownClipStamp = clipStamp()
+            }
+        }
+    }
+
+    private var ownClipStamp = -1L
+
+    /** A single `<p>...</p>` pasted as HTML leaves an extra empty paragraph behind: hand over its content inline. */
+    private fun inlineHtml(html: String): String {
+        val body = Regex("(?is)<body[^>]*>(.*)</body>").find(html)?.groupValues?.get(1) ?: html
+        val cleaned = body.replace(Regex("(?is)<!--.*?-->"), "").trim()
+        val one = Regex("(?is)^<(p|div)\\b[^>]*>(.*)</\\1>$").find(cleaned) ?: return html
+        val inner = one.groupValues[2]
+        return if (Regex("(?i)<(p|div|br|li|ul|ol|table|h[1-6]|pre|blockquote)\\b").containsMatchIn(inner)) html else inner
+    }
+
+    /** Paste from the phone's clipboard: a picture, HTML or plain text. Our own copy goes through LibreOffice. */
+    fun paste() {
+        markDirty()
+        val cm = clipboard()
+        val clip = cm?.primaryClip
+        if (cm == null || clip == null || clip.itemCount == 0 || clipStamp() == ownClipStamp) { edit { uno(".uno:Paste") }; return }
+        val item = clip.getItemAt(0)
+        val desc = clip.description
+        val uri = item.uri
+        if (uri != null && desc.hasMimeType("image/*")) { onPasteImage?.invoke(uri); return }
+        val ctx = appContext
+        val html = if (desc.hasMimeType("text/html")) item.htmlText?.let { inlineHtml(it) } else null
+        val text = item.coerceToText(ctx)?.toString()
+        if (html.isNullOrEmpty() && text.isNullOrEmpty()) { edit { uno(".uno:Paste") }; return }
+        followCursor = true
+        edit {
+            val ok = !html.isNullOrEmpty() && pasteData("text/html", html)
+            if (!ok && !text.isNullOrEmpty()) pasteData("text/plain;charset=utf-8", text)
+        }
+    }
+
     /** Link on the selection, or at the cursor: type [text], select it, then apply the hyperlink. */
     fun insertLink(text: String, url: String) {
         markDirty()

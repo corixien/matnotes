@@ -177,6 +177,30 @@ class MainActivity : ComponentActivity() {
             i?.getStringExtra("link")?.let { l ->
                 val (t, u) = l.split('|'); current?.state?.insertLink(t, u); return
             }
+            i?.getStringExtra("setclip")?.let { t ->
+                val cm = getSystemService(android.content.ClipboardManager::class.java)
+                val h = i.getStringExtra("setclip_html")
+                cm.setPrimaryClip(if (h == null) android.content.ClipData.newPlainText("t", t) else android.content.ClipData.newHtmlText("t", t, h))
+                return
+            }
+            if (i?.hasExtra("setclip_image") == true) {
+                val dir = File(cacheDir, "share").apply { mkdirs() }
+                val f = File(dir, "clip-test.png")
+                val bmp = android.graphics.Bitmap.createBitmap(300, 200, android.graphics.Bitmap.Config.ARGB_8888)
+                android.graphics.Canvas(bmp).drawColor(android.graphics.Color.rgb(220, 40, 40))
+                f.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+                val uri = FileProvider.getUriForFile(this, "$packageName.files", f)
+                getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(android.content.ClipData.newUri(contentResolver, "img", uri))
+                return
+            }
+            if (i?.hasExtra("getclip") == true) {
+                val c = getSystemService(android.content.ClipboardManager::class.java).primaryClip
+                val it0 = c?.takeIf { it.itemCount > 0 }?.getItemAt(0)
+                android.util.Log.d("MatNotesDump", "clip mime=${c?.description?.filterMimeTypes("*/*")?.toList()} text=${it0?.text} html=${it0?.htmlText?.take(300)}")
+                return
+            }
+            if (i?.hasExtra("paste") == true) { current?.state?.paste(); return }
+            if (i?.hasExtra("copy") == true) { current?.state?.copy(cut = i.getBooleanExtra("cut", false)); return }
             i?.getStringExtra("cmdvalues")?.let { c -> current?.state?.logCommandValues(c); return }
             i?.getStringExtra("uno")?.let { cmd ->
                 current?.state?.uno(cmd, i.getStringExtra("unoargs").orEmpty())
@@ -217,7 +241,7 @@ class MainActivity : ComponentActivity() {
                     saveUri = if (myDocs.any { it.uri == uri }) uri else null
                     current = OpenDoc(
                         doc, name,
-                        DocumentViewState(doc, lifecycleScope, resources.displayMetrics.density).also { it.onSave = ::save; it.onTableOp = ::applyTableOp },
+                        DocumentViewState(doc, lifecycleScope, resources.displayMetrics.density).also { it.onSave = ::save; it.onTableOp = ::applyTableOp; it.onPasteImage = ::insertImage; it.appContext = applicationContext },
                         uri,
                     )
                     recents.add(uri.toString(), name)
@@ -251,7 +275,7 @@ class MainActivity : ComponentActivity() {
                 } else {
                     current?.let { closeDocument() }
                     saveUri = null
-                    val st = DocumentViewState(doc, lifecycleScope, resources.displayMetrics.density).also { it.onSave = ::save; it.onTableOp = ::applyTableOp }
+                    val st = DocumentViewState(doc, lifecycleScope, resources.displayMetrics.density).also { it.onSave = ::save; it.onTableOp = ::applyTableOp; it.onPasteImage = ::insertImage; it.appContext = applicationContext }
                     current = OpenDoc(doc, name, st, null)
                     st.editing = true
                     st.wantKeyboard = true
@@ -442,7 +466,7 @@ class MainActivity : ComponentActivity() {
                 check(exported) { "export failed" }
                 withContext(Dispatchers.IO) { PageSetup.apply(src, dst, change) }
                 val doc = Engine.open(this@MainActivity, dst) ?: error("reload failed")
-                val st = DocumentViewState(doc, lifecycleScope, resources.displayMetrics.density).also { it.onSave = ::save; it.onTableOp = ::applyTableOp }
+                val st = DocumentViewState(doc, lifecycleScope, resources.displayMetrics.density).also { it.onSave = ::save; it.onTableOp = ::applyTableOp; it.onPasteImage = ::insertImage; it.appContext = applicationContext }
                 st.editing = cur.state.editing
                 st.dirty = true
                 current = OpenDoc(doc, cur.title, st, cur.source)
@@ -475,7 +499,7 @@ class MainActivity : ComponentActivity() {
                     return@launch
                 }
                 val doc = Engine.open(this@MainActivity, dst) ?: error("reload failed")
-                val st = DocumentViewState(doc, lifecycleScope, resources.displayMetrics.density).also { it.onSave = ::save; it.onTableOp = ::applyTableOp }
+                val st = DocumentViewState(doc, lifecycleScope, resources.displayMetrics.density).also { it.onSave = ::save; it.onTableOp = ::applyTableOp; it.onPasteImage = ::insertImage; it.appContext = applicationContext }
                 st.editing = cur.state.editing
                 st.dirty = true
                 st.copyViewFrom(cur.state)
