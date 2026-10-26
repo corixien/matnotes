@@ -33,11 +33,13 @@ CREATE TABLE folders (
     id uuid PRIMARY KEY,                     -- chosen by the client (it is part of the encryption context)
     owner_id uuid REFERENCES users (id) ON DELETE SET NULL,   -- null once the owner deleted the account (folder is then deleted too)
     enc_name text NOT NULL,
+    personal boolean NOT NULL DEFAULT false, -- the user's own folder (maps to the app's main folder); at most one per owner
     created_at timestamptz NOT NULL DEFAULT now(),
     deleted_at timestamptz,
     change_seq bigint NOT NULL DEFAULT nextval('change_seq')
 );
 CREATE INDEX folders_owner ON folders (owner_id);
+CREATE UNIQUE INDEX folders_one_personal ON folders (owner_id) WHERE personal AND deleted_at IS NULL;
 
 CREATE TABLE folder_members (
     folder_id uuid NOT NULL REFERENCES folders (id) ON DELETE CASCADE,

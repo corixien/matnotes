@@ -49,6 +49,9 @@ class MainActivity : ComponentActivity() {
     private var shareDialog by mutableStateOf(false)
     private var nameDialog by mutableStateOf<String?>(null)
     private var myDocs by mutableStateOf<List<StoredDoc>>(emptyList())
+    private val sync by lazy { com.matnotes.app.sync.SyncEngine(applicationContext) }
+    private val syncHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var lastSyncStart = 0L
 
     private val createDoc = registerForActivityResult(ActivityResultContracts.CreateDocument(DOCX_MIME)) { uri ->
         if (uri != null) { saveUri = uri; doSave() } else closeAfterSave = false
@@ -60,6 +63,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        com.matnotes.app.sync.Account.init(this)
+        com.matnotes.app.sync.Account.onSignedOut = { sync.reset() }
+        // signing in (or registering) starts the first sync right away
+        lifecycleScope.launch {
+            com.matnotes.app.sync.Account.state.collect { if (it is com.matnotes.app.sync.AccountState.LoggedIn) syncNow() }
+        }
         recents = Recents(this)
         recentList = recents.list()
         refreshStore()
@@ -116,6 +125,8 @@ class MainActivity : ComponentActivity() {
                         dismissButton = { TextButton({ confirmOverwrite = false }) { Text(stringResource(R.string.cancel)) } },
                     )
                 }
+                var accountDialog by remember { mutableStateOf(false) }
+                if (accountDialog) AccountDialog({ accountDialog = false }) { SignedInPage(sync, onSyncNow = ::syncNow) }
                 if (shareDialog) ShareDialog({ shareDialog = false }) { fmt, email -> shareDocument(fmt, email) }
                 nameDialog?.let { initial ->
                     NameDialog(initial, { nameDialog = null }) { n -> saveToStore(if (n.endsWith(".docx", true)) n else "$n.docx") }
@@ -146,6 +157,7 @@ class MainActivity : ComponentActivity() {
                         onOpenStored = { openUri(it.uri) },
                         onOpenRecent = { openUri(Uri.parse(it.uri)) },
                         onRemoveRecent = { recents.remove(it.uri); recentList = recents.list() },
+                        onProfile = { accountDialog = true },
                     )
                 }
             }
@@ -359,6 +371,24 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         refreshStore()
+        if (com.matnotes.app.sync.Account.loggedIn && System.currentTimeMillis() - lastSyncStart > 60_000L) syncNow()
+    }
+
+    /** One sync cycle. Files that are open in the editor are left alone. */
+    private fun syncNow() {
+        if (!com.matnotes.app.sync.Account.loggedIn) return
+        lastSyncStart = System.currentTimeMillis()
+        lifecycleScope.launch {
+            sync.sync { uri -> current?.source == uri || saveUri == uri }
+            refreshStore()
+        }
+    }
+
+    /** After a save: sync a few seconds later (several saves in a row become one sync). */
+    private fun scheduleSync() {
+        if (!com.matnotes.app.sync.Account.loggedIn) return
+        syncHandler.removeCallbacksAndMessages(null)
+        syncHandler.postDelayed({ syncNow() }, 5_000L)
     }
 
     private fun doSave() {
@@ -386,6 +416,7 @@ class MainActivity : ComponentActivity() {
                 recents.add(target.toString(), c.title)
                 recentList = recents.list()
                 refreshStore()
+                scheduleSync()
                 android.widget.Toast.makeText(this@MainActivity, R.string.saved, android.widget.Toast.LENGTH_SHORT).show()
                 if (closeAfterSave) { closeAfterSave = false; closeDocument() }
             } else {

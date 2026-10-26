@@ -32,6 +32,19 @@ test('folders, documents, sync feed', { skip: h.skip }, async (t) => {
     const doc = h.uuid();
     const data1 = blob(1000);
 
+    await t.test('one personal folder per user', async () => {
+        const pia = await s.register('Pia', 'pia@example.com');
+        const pf = h.uuid();
+        assert.equal((await s.call('POST', '/folders', { token: pia.token, body: { id: pf, encName: h.rb(40), wrappedKey: h.rb(384), personal: true } })).status, 201);
+        const again = await s.call('POST', '/folders', { token: pia.token, body: { id: h.uuid(), encName: h.rb(40), wrappedKey: h.rb(384), personal: true } });
+        assert.equal(again.status, 409);
+        assert.equal(again.data.error, 'personal_exists');
+        const f = (await feed(pia)).data.folders;
+        assert.equal(f.length, 1);
+        assert.equal(f[0].personal, true);
+        assert.equal((await feed(anna)).data.folders[0].personal, false);
+    });
+
     await t.test('upload, download, strangers get 404', async () => {
         const r = await put(anna, fid, doc, 0, data1);
         assert.equal(r.status, 200);

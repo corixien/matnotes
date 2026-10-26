@@ -23,10 +23,15 @@ router.post('/folders', asyncHandler(async (req, res) => {
     const id = v.uuid(req.body.id, 'id');
     const encName = v.b64(req.body.encName, 'encName', 2000);
     const wrappedKey = v.b64(req.body.wrappedKey, 'wrappedKey', 1000);
+    const personal = req.body.personal === true;
     const cursor = await db.writeTransaction(async (c) => {
+        if (personal) {
+            const p = await c.query('SELECT 1 FROM folders WHERE owner_id = $1 AND personal AND deleted_at IS NULL', [req.userId]);
+            if (p.rows[0]) throw new AppError(409, 'personal_exists', 'The personal folder already exists');
+        }
         const n = await c.query('SELECT count(*)::int AS n FROM folders WHERE owner_id = $1 AND deleted_at IS NULL', [req.userId]);
         if (n.rows[0].n >= MAX_OWNED_FOLDERS) throw new AppError(409, 'limit', 'Too many folders');
-        const f = await c.query('INSERT INTO folders (id, owner_id, enc_name) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING RETURNING change_seq', [id, req.userId, encName]);
+        const f = await c.query('INSERT INTO folders (id, owner_id, enc_name, personal) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING RETURNING change_seq', [id, req.userId, encName, personal]);
         if (!f.rows[0]) throw new AppError(409, 'exists', 'Folder id already exists');
         await c.query(`INSERT INTO folder_members (folder_id, user_id, role, status, wrapped_key) VALUES ($1, $2, 'owner', 'active', $3)`, [id, req.userId, wrappedKey]);
         return f.rows[0].change_seq;

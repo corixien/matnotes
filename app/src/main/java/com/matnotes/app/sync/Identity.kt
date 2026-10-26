@@ -51,9 +51,19 @@ object Identity {
 
     fun authKey(password: String, saltB64: String, iterations: Int): String = Crypto.b64(derive(password, Crypto.unb64(saltB64), iterations).auth)
 
+    /** Both keys of one password derivation (the slow step runs once per login). */
+    class LoginKeys internal constructor(val authKey: String, internal val enc: ByteArray)
+
+    fun loginKeys(password: String, saltB64: String, iterations: Int): LoginKeys {
+        val d = derive(password, Crypto.unb64(saltB64), iterations)
+        return LoginKeys(Crypto.b64(d.auth), d.enc)
+    }
+
     /** The account private key; throws [GeneralSecurityException] when the password is wrong. */
+    fun unlock(keys: LoginKeys, encPrivateKeyB64: String): ByteArray = Crypto.open(keys.enc, Crypto.unb64(encPrivateKeyB64), AAD_PRIVATE)
+
     fun unlock(password: String, saltB64: String, iterations: Int, encPrivateKeyB64: String): ByteArray =
-        Crypto.open(derive(password, Crypto.unb64(saltB64), iterations).enc, Crypto.unb64(encPrivateKeyB64), AAD_PRIVATE)
+        unlock(loginKeys(password, saltB64, iterations), encPrivateKeyB64)
 
     class Rewrapped(val kdfSalt: String, val kdfIterations: Int, val authKey: String, val encPrivateKey: String)
 

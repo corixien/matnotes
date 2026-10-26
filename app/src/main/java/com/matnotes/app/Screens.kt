@@ -75,17 +75,21 @@ fun HomeScreen(
     onOpenStored: (StoredDoc) -> Unit,
     onOpenRecent: (RecentFile) -> Unit,
     onRemoveRecent: (RecentFile) -> Unit,
+    onProfile: () -> Unit,
 ) {
     val storedUris = remember(myDocs) { myDocs.map { it.uri.toString() }.toSet() }
     val others = recents.filter { it.uri !in storedUris }
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 20.dp)) {
-        Text(
-            "MatNotes",
-            Modifier.padding(top = 28.dp),
-            style = MaterialTheme.typography.displaySmall,
-            color = MaterialTheme.colorScheme.primary,
-            fontWeight = FontWeight.Bold,
-        )
+        Row(Modifier.fillMaxWidth().padding(top = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "MatNotes",
+                Modifier.weight(1f),
+                style = MaterialTheme.typography.displaySmall,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold,
+            )
+            ProfileButton(onProfile)
+        }
         Text(
             stringResource(R.string.tagline),
             Modifier.padding(top = 4.dp, bottom = 24.dp),

@@ -15,7 +15,7 @@ router.get('/sync/changes', asyncHandler(async (req, res) => {
     const since = raw;
 
     const folders = (await db.query(
-        `SELECT f.id, f.owner_id, f.enc_name, f.deleted_at, f.change_seq, m.role, m.status, m.wrapped_key, m.change_seq AS member_seq
+        `SELECT f.id, f.owner_id, f.enc_name, f.personal, f.deleted_at, f.change_seq, m.role, m.status, m.wrapped_key, m.change_seq AS member_seq
          FROM folders f JOIN folder_members m ON m.folder_id = f.id AND m.user_id = $1
          WHERE f.change_seq > $2 OR m.change_seq > $2
             OR EXISTS (SELECT 1 FROM folder_members o WHERE o.folder_id = f.id AND o.change_seq > $2)
@@ -55,6 +55,7 @@ router.get('/sync/changes', asyncHandler(async (req, res) => {
             id: f.id,
             ownerId: f.owner_id,
             encName: f.enc_name,
+            personal: f.personal,
             deleted: !!f.deleted_at,
             role: f.role,
             status: f.status,
