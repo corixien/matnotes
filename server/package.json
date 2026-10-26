@@ -1,0 +1,20 @@
+{
+  "name": "matnotes-sync-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Zero-knowledge sync server for MatNotes (Express + Neon Postgres). Stores only encrypted data.",
+  "license": "MIT",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node src/migrate.js && node src/index.js",
+    "migrate": "node src/migrate.js",
+    "check": "node scripts/check.js",
+    "test": "node --test --test-concurrency=1 test/auth.test.js test/sync.test.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.13.1"
+  }
+}

@@ -1,0 +1,20 @@
+# Render blueprint for the sync server (Free plan; spins down when idle, the first request afterwards is slow).
+services:
+  - type: web
+    name: matnotes-sync
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    buildFilter:
+      paths:
+        - server/**
+    envVars:
+      - key: DATABASE_URL        # Neon pooled connection string of the matnotes-sync project (never commit)
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_SSL_REJECT_UNAUTHORIZED
+        value: "false"
