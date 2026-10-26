@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## Goal
-MatNotes: Android app to open/edit/export .docx with a Word-like mobile UI. Priority 1: layout fidelity (shapes, text boxes, SmartArt display, charts, wrapped images). Local only, no accounts, DE/EN, phone + tablet, arm64 only.
+MatNotes: Android app to open/edit/export .docx with a Word-like mobile UI. Priority 1: layout fidelity (shapes, text boxes, SmartArt display, charts, wrapped images). Local first: everything works without an account. Optional account for end-to-end encrypted cloud sync and shared folders. DE/EN, phone + tablet, arm64 only.
 
 ## Stack
 Kotlin + Jetpack Compose, LibreOfficeKit (JNI) as render/edit engine, coroutines, MediaStore storage in `Documents/MatNotes`. Package `com.matnotes.app`, compileSdk 37, minSdk 26.
@@ -19,6 +19,11 @@ Kotlin + Jetpack Compose, LibreOfficeKit (JNI) as render/edit engine, coroutines
 | `TablePatch.kt` | Table borders (`w:tblBorders`) and table looks (header/band shading, bold header) by patching the exported docx and reloading; finds the caret's table through a typed marker. |
 | `ShapeThumbs.kt` | Drawn previews for the shape gallery. |
 | `Spelling.kt`, `SpellPanel.kt`, `Hunspell.kt`, `src/main/cpp/` | Spelling check: Hunspell 1.7.2 (vendored in `cpp/hunspell`, built with the NDK through CMake, JNI wrapper `spell_jni.cpp`) on the exported document text. `Spelling` = language list, dictionary copy out of the APK (`assets/dict`, Hunspell needs real files) into `filesDir/dict`, tokenizer, language detection (script + stopwords, then known-word share per dictionary, document language and device language as prior). `SpellPanel` = bottom panel instead of the ribbon: detected language (changeable) -> mistakes one by one with suggestions, replace-all via `.uno:ExecuteSearch`. |
+| `sync/Crypto.kt`, `sync/Identity.kt` | End-to-end encryption (javax.crypto only): PBKDF2 -> auth key + enc key, RSA-3072 OAEP key pair, AES-256-GCM with AAD, recovery key, `Vault` (folder/document keys and names). JVM unit tests in `app/src/test`. |
+| `sync/Account.kt`, `sync/SecureStore.kt`, `sync/SyncApi.kt` | Login state (refresh token + private key sealed with the Android Keystore), register/login/recover/password/delete flows, HTTP client with token refresh. |
+| `sync/SyncEngine.kt`, `sync/SyncPlanner.kt`, `sync/SyncDb.kt` | Sync cycle, pure decision table, local SQLite (cursor, folders, file-to-document links). |
+| `AccountDialog.kt`, `FoldersDialog.kt` | Profile button + account dialog (top right of the start screen), shared folders (invite, accept, members). |
+| `server/` | Sync backend (Express + Neon Postgres), see `server/README.md`. |
 | `DocStore.kt` | `Documents/MatNotes` via MediaStore. `Recents.kt`, `Printing.kt`, `Theme.kt`. |
 | `org/libreoffice/kit/*` | JNI classes copied from LibreOffice core (MPL-2.0). Package names must stay. |
 
@@ -42,6 +47,14 @@ Kotlin + Jetpack Compose, LibreOfficeKit (JNI) as render/edit engine, coroutines
 - Character formatting without a selection applies to what is typed next (no `.uno:SelectWord`).
 - Document language is reported in `.uno:LanguageStatus` state (`German (Germany);de-DE`).
 
+## Cloud sync (read before touching `sync/` or `server/`)
+- **Zero knowledge.** The server stores ciphertext and public keys only. Keys: password --PBKDF2-600k--> master --HMAC--> auth key (sent to the server, which scrypt-hashes it) and enc key (wraps the RSA private key). A random 32-byte recovery key (shown once, Base32) wraps the private key a second time; without password and recovery key the data is gone, by design. Folder key (random) is wrapped per member with their RSA public key; each document version has its own random key wrapped with the folder key. Names are encrypted too. The AAD of every ciphertext names folder/document/version, so the server cannot swap blobs.
+- **Model.** Folder = unit of sharing. Every account has one *personal* folder (maps to `Documents/MatNotes/`); shared folders map to `Documents/MatNotes/<name>/` (`FolderRow.localDir`). A shared document exists once in the cloud; every member has one local copy. Membership: owner invites by e-mail (the folder key is wrapped with the invitee's public key at invite time, the invitee accepts later, the inviter's phone need not be online). The invite dialog shows the invitee's key fingerprint to compare (trust on first use otherwise). Limitation: removing a member does not rotate the folder key (they keep what they already downloaded).
+- **Sync algorithm.** Whole files, no merge. Per document: `base_version`/`base_hash` = state at the last sync; local changed = hash differs, cloud changed = version differs; `SyncPlanner` maps that to push/pull/conflict/delete. Conflict: cloud version keeps the original name, the local version becomes `<name> (Konflikt dd.MM.yyyy).ext` and uploads as a new document. Files open in the editor are never replaced or deleted. Local deletions propagate only when the MediaStore listing succeeded. Writes use `If-Match: <version>` (optimistic concurrency); 409 is resolved in the next cycle.
+- **Server invariants.** Writers that bump `change_seq` take a global advisory lock (`db.writeTransaction`): sequence order = commit order, so the cursor never skips rows. Only `KEEP_VERSIONS` (2) versions keep their data (storage); deleting a document frees its data at once. Quota counts against the folder owner (200 MB), max file 25 MB.
+- **Config.** App: `BuildConfig.SYNC_URL` from gradle `-PsyncUrl=` or env `MATNOTES_SYNC_URL` (CI: repository variable of the same name). Debug builds allow cleartext to localhost: `adb reverse tcp:3000 tcp:3000` + a local server (`server/README.md`) + `-PsyncUrl=http://127.0.0.1:3000/api`. Debug hook: `--ez sync true` runs a sync.
+- Test accounts on the user's phone: use throwaway e-mails; never put real passwords or recovery keys into logs or chat.
+
 ## Engine setup
 Run `scripts/fetch-engine.sh` once (it also runs `scripts/fetch-dictionaries.sh`: 47 Hunspell dictionaries from the npm `dictionary-*` packages into `assets/dict`, about 145 MB unpacked): downloads the TDF LibreOffice APK from F-Droid (arm64), unpacks libs + assets into `app/src/main`, then `scripts/fetch-fonts.sh` adds DejaVu, Comic Neue and Anton. All of it is gitignored (`engine/`, `app/src/main/jniLibs`, `app/src/main/assets`). Bump `versionCode` when the unpacked assets change (they are copied to the data dir once per version).
 
@@ -63,4 +76,4 @@ Tag `v*` runs `.github/workflows/release.yml` (signed APK as GitHub Release). **
 - Push straight to `main` when asked; never open PRs.
 
 ## Milestones
-Done: engine spike, viewer, editor, ribbon, pictures/shapes, page setup, storage, share. Also done: text boxes, tables (bubbles, drag, Table tab, borders/looks). Next ideas: signed release pipeline (GitHub Actions + Releases), comments, table of contents (needs a dialog-free path), more shape formatting.
+Done (cloud sync: server, crypto, account UI, sync engine, shared folders are built; device verification and the Neon/Render deployment are the open steps, see `project-resume.md`): engine spike, viewer, editor, ribbon, pictures/shapes, page setup, storage, share. Also done: text boxes, tables (bubbles, drag, Table tab, borders/looks). Next ideas: signed release pipeline (GitHub Actions + Releases), comments, table of contents (needs a dialog-free path), more shape formatting.

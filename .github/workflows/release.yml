@@ -23,6 +23,7 @@ jobs:
         run: echo "$KS_B64" | tr -d " \r\n\"" | base64 -d > "$RUNNER_TEMP/release.jks"
       - name: Build
         env:
+          MATNOTES_SYNC_URL: ${{ vars.MATNOTES_SYNC_URL }}
           MATNOTES_KEYSTORE_PASSWORD: ${{ secrets.MATNOTES_KEYSTORE_PASSWORD }}
           MATNOTES_KEY_ALIAS: ${{ secrets.MATNOTES_KEY_ALIAS }}
           MATNOTES_KEY_PASSWORD: ${{ secrets.MATNOTES_KEY_PASSWORD }}

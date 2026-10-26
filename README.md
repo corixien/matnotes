@@ -1,11 +1,12 @@
 # MatNotes
 
-Android app (phone + tablet) to open, edit and export Word documents (`.docx`) with maximum layout fidelity and a Word-like mobile UI. Local only, no accounts, German + English. Rendering and editing run on the real LibreOffice engine (LibreOfficeKit), so complex layouts (text boxes, wrapped images, shapes, tables) are displayed as LibreOffice lays them out.
+Android app (phone + tablet) to open, edit and export Word documents (`.docx`) with maximum layout fidelity and a Word-like mobile UI. Local first, German + English; an optional account adds end-to-end encrypted cloud sync and shared folders. Rendering and editing run on the real LibreOffice engine (LibreOfficeKit), so complex layouts (text boxes, wrapped images, shapes, tables) are displayed as LibreOffice lays them out.
 
 ## Features
 
 - **Open:** file picker, "Open with", share target, recent files, `Documents/MatNotes` list on the start screen. New blank document with Word defaults (A4, Calibri 11 pt, 2.54 cm margins, 8 pt paragraph spacing).
 - **Edit:** typing (IME + hardware keyboard + Word shortcuts), selection handles, floating cut/copy/paste bar, find and replace, undo/redo, format painter.
+- **Account and cloud sync** (profile button, top right): register with name, e-mail and password; your documents sync between your devices. Documents, names and keys are encrypted on the phone, the server only sees encrypted data. You get a recovery key at registration, the only way back in after a forgotten password. **Shared folders:** invite another account by e-mail; everyone in the folder works on the same documents (stored once in the cloud, one copy per phone). Conflicting edits keep both versions.
 - **Spelling check** (Review tab): detects the language from the text (about 47 dictionaries: all major European languages plus Turkish, Vietnamese, Russian, ...), you can change it, then step through the mistakes with suggestions; replaces every occurrence. Offline, Hunspell.
 - **Ribbon** in Word order (Home, Insert, Layout, References, Review, View, contextual Picture/Shape tab) with grouped icon buttons, editable font and size boxes, colour pickers, styles gallery, change case, paragraph shading, lists, alignment, line spacing.
 - **Tables:** speech-bubble buttons at the table: "+" at every column/row border inserts exactly there, "-" on each column/row deletes it; drag a border line to change column width or row height; contextual Table tab with merge/split, cell colour, fit/even rows and columns, vertical alignment, border presets (all, outside, inside, none, single edges; line style, width, colour), 8 table looks (grid, blue, green, orange, striped, minimal, dark, ...) and delete table.
@@ -34,6 +35,10 @@ LibreOffice rewrites the whole file on save, so complex content (SmartArt, chart
 | Fonts | Microsoft fonts cannot be bundled. Metric clones render exactly (Calibri, Cambria, Arial, Arial Narrow, Times New Roman, Courier New); other Word font names are kept in the file but shown with a stand-in |
 
 Only arm64 devices (the LibreOffice engine is bundled for arm64 only).
+
+## Cloud sync server
+
+The backend lives in [`server/`](server/README.md) (Node + Postgres on Neon, deployed on Render with `render.yaml`).
 
 ## Stack
 

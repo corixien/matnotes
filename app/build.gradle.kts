@@ -15,7 +15,7 @@ android {
         versionName = "0.2.1"
         ndk { abiFilters += "arm64-v8a" }
         // Sync server (Render). Override for a local server: -PsyncUrl=http://127.0.0.1:3000/api (debug builds allow cleartext to localhost)
-        val syncUrl = (project.findProperty("syncUrl") as String?) ?: System.getenv("MATNOTES_SYNC_URL") ?: "https://matnotes-sync.onrender.com/api"
+        val syncUrl = (project.findProperty("syncUrl") as String?) ?: System.getenv("MATNOTES_SYNC_URL")?.takeIf { it.isNotBlank() } ?: "https://matnotes-sync.onrender.com/api"
         buildConfigField("String", "SYNC_URL", "\"$syncUrl\"")
     }
 

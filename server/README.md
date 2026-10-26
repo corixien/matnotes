@@ -14,6 +14,15 @@ DATABASE_URL=... JWT_SECRET=<32+ chars> npm start      # migrates, then serves /
 Env: `DATABASE_URL`, `JWT_SECRET` (required); `DATABASE_SSL_REJECT_UNAUTHORIZED=false` on Neon; optional `MAX_FILE_BYTES` (25 MB),
 `USER_QUOTA_BYTES` (200 MB, counted against the folder owner), `KEEP_VERSIONS` (2), `ACCESS_TOKEN_SECONDS`, `REFRESH_TOKEN_DAYS`.
 
+## Deploy (Neon + Render)
+
+1. Neon: create a **new** project (not the productivity-tracker one), copy the *pooled* connection string.
+2. Render: New, Blueprint, pick this repo (`render.yaml`); set `DATABASE_URL` to the Neon string, `JWT_SECRET` is generated. Deploys on every push that touches `server/`; `npm start` migrates first.
+3. Check `https://<service>.onrender.com/api/health`.
+4. App: set the GitHub repository variable `MATNOTES_SYNC_URL` to `https://<service>.onrender.com/api` (Settings, Secrets and variables, Actions, Variables) before the next release tag; local builds use `-PsyncUrl=...`.
+
+Render's free plan sleeps when idle: the first request afterwards takes up to a minute (the app waits 30 s to connect, 90 s to read).
+
 ## Test
 
 Needs a throwaway local Postgres, never Neon:

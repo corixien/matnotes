@@ -59,7 +59,7 @@ import java.security.GeneralSecurityException
 
 /** The round profile button at the top right of the start screen: initial of the name when signed in, a person outline otherwise. */
 @Composable
-fun ProfileButton(onClick: () -> Unit) {
+fun ProfileButton(badge: Boolean, onClick: () -> Unit) {
     val state by Account.state.collectAsState()
     val initial = (state as? AccountState.LoggedIn)?.name?.trim()?.firstOrNull()?.uppercase()
     val fg = if (initial != null) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
@@ -79,6 +79,7 @@ fun ProfileButton(onClick: () -> Unit) {
                 drawArc(fg, 200f, 140f, false, Offset(w * 0.12f, w * 0.58f), androidx.compose.ui.geometry.Size(w * 0.76f, w * 0.7f), style = st)
             }
         }
+        if (badge) Box(Modifier.align(Alignment.TopEnd).size(12.dp).clip(CircleShape).background(MaterialTheme.colorScheme.error))
     }
 }
 
@@ -253,6 +254,10 @@ private fun RecoveryKeyPage(key: String, onDone: () -> Unit) {
 /** Content of the dialog while signed in: who, sync status with a manual "sync now", sign out. */
 @Composable
 fun SignedInPage(sync: com.matnotes.app.sync.SyncEngine, onSyncNow: () -> Unit) {
+    var folders by remember { mutableStateOf(false) }
+    var changePassword by remember { mutableStateOf(false) }
+    var deleteAccount by remember { mutableStateOf(false) }
+    val context = LocalContext.current
     val state by Account.state.collectAsState()
     val status by sync.status.collectAsState()
     val scope = rememberCoroutineScope()
@@ -282,6 +287,8 @@ fun SignedInPage(sync: com.matnotes.app.sync.SyncEngine, onSyncNow: () -> Unit) 
         else -> Text(stringResource(R.string.sync_idle), color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     Spacer(Modifier.height(10.dp))
+    if (folders) FoldersDialog(sync, onSyncNow) { folders = false }
+    OutlinedButton(onClick = { folders = true }, Modifier.padding(bottom = 8.dp)) { Text(stringResource(R.string.share_open)) }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(onClick = onSyncNow, enabled = status !is com.matnotes.app.sync.SyncStatus.Running) { Text(stringResource(R.string.sync_now)) }
         OutlinedButton(
@@ -289,4 +296,73 @@ fun SignedInPage(sync: com.matnotes.app.sync.SyncEngine, onSyncNow: () -> Unit) 
             onClick = { busy = true; scope.launch { Account.logout(); busy = false } },
         ) { Text(stringResource(R.string.acc_sign_out)) }
     }
+    Row {
+        TextButton({ changePassword = true }) { Text(stringResource(R.string.acc_change_password)) }
+        TextButton({ deleteAccount = true }) { Text(stringResource(R.string.acc_delete_account), color = MaterialTheme.colorScheme.error) }
+    }
+    if (changePassword) PasswordDialog(
+        title = R.string.acc_change_password, withCurrent = true, confirmLabel = R.string.acc_save, onDismiss = { changePassword = false },
+    ) { current, next ->
+        Account.changePassword(current, next)
+        android.widget.Toast.makeText(context, R.string.acc_password_changed, android.widget.Toast.LENGTH_LONG).show()
+    }
+    if (deleteAccount) PasswordDialog(
+        title = R.string.acc_delete_title, message = R.string.acc_delete_msg, withCurrent = true, withNew = false,
+        confirmLabel = R.string.acc_delete_account, danger = true, onDismiss = { deleteAccount = false },
+    ) { current, _ -> Account.deleteAccount(current) }
+}
+
+/** Password prompt for changing the password or confirming the deletion; shows the server's/crypto error in place. */
+@Composable
+private fun PasswordDialog(
+    title: Int, message: Int? = null, withCurrent: Boolean, withNew: Boolean = true, confirmLabel: Int, danger: Boolean = false,
+    onDismiss: () -> Unit, action: suspend (current: String, new: String) -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var current by remember { mutableStateOf("") }
+    var next by remember { mutableStateOf("") }
+    var repeat by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val errShort = stringResource(R.string.acc_err_password_short)
+    val errMismatch = stringResource(R.string.acc_err_password_mismatch)
+    val errCredentials = stringResource(R.string.acc_err_credentials)
+    val errNetwork = stringResource(R.string.acc_err_network)
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text(stringResource(title)) },
+        text = {
+            Column {
+                message?.let { Text(stringResource(it), Modifier.padding(bottom = 8.dp), style = MaterialTheme.typography.bodyMedium) }
+                if (withCurrent) Field(current, { current = it }, stringResource(R.string.acc_current_password), KeyboardType.Password, secret = true, enabled = !busy)
+                if (withNew) {
+                    Field(next, { next = it }, stringResource(R.string.acc_new_password), KeyboardType.Password, secret = true, enabled = !busy)
+                    Field(repeat, { repeat = it }, stringResource(R.string.acc_password_repeat), KeyboardType.Password, secret = true, enabled = !busy)
+                }
+                error?.let { Text(it, Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.error) }
+                if (busy) CircularProgressIndicator(Modifier.padding(top = 10.dp).size(22.dp), strokeWidth = 2.5.dp)
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !busy && current.isNotEmpty(),
+                onClick = {
+                    if (withNew && next.length < 10) { error = errShort; return@TextButton }
+                    if (withNew && next != repeat) { error = errMismatch; return@TextButton }
+                    busy = true
+                    error = null
+                    scope.launch {
+                        try { action(current, next); onDismiss() } catch (e: Exception) {
+                            error = when {
+                                e is ApiException && e.code == "invalid_credentials" -> errCredentials
+                                e is IOException && e !is ApiException -> errNetwork
+                                else -> e.message
+                            }
+                        } finally { busy = false }
+                    }
+                },
+            ) { Text(stringResource(confirmLabel), color = if (danger) MaterialTheme.colorScheme.error else Color.Unspecified) }
+        },
+        dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
+    )
 }

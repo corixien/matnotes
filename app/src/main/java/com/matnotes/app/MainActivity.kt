@@ -16,6 +16,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.res.stringResource
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,6 +50,7 @@ class MainActivity : ComponentActivity() {
     private var shareDialog by mutableStateOf(false)
     private var nameDialog by mutableStateOf<String?>(null)
     private var myDocs by mutableStateOf<List<StoredDoc>>(emptyList())
+    private var sharedDocs by mutableStateOf<List<Pair<com.matnotes.app.sync.FolderRow, List<StoredDoc>>>>(emptyList())
     private val sync by lazy { com.matnotes.app.sync.SyncEngine(applicationContext) }
     private val syncHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var lastSyncStart = 0L
@@ -69,6 +71,7 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             com.matnotes.app.sync.Account.state.collect { if (it is com.matnotes.app.sync.AccountState.LoggedIn) syncNow() }
         }
+        lifecycleScope.launch { sync.folderList.collect { refreshStore() } }
         recents = Recents(this)
         recentList = recents.list()
         refreshStore()
@@ -126,10 +129,13 @@ class MainActivity : ComponentActivity() {
                     )
                 }
                 var accountDialog by remember { mutableStateOf(false) }
+                val folderState by sync.folderList.collectAsState()
                 if (accountDialog) AccountDialog({ accountDialog = false }) { SignedInPage(sync, onSyncNow = ::syncNow) }
                 if (shareDialog) ShareDialog({ shareDialog = false }) { fmt, email -> shareDocument(fmt, email) }
                 nameDialog?.let { initial ->
-                    NameDialog(initial, { nameDialog = null }) { n -> saveToStore(if (n.endsWith(".docx", true)) n else "$n.docx") }
+                    val personal = stringResource(R.string.share_personal)
+                    val choices = listOf(personal to "") + sharedDocs.map { it.first.name to it.first.localDir }
+                    NameDialog(initial, choices, { nameDialog = null }) { n, dir -> saveToStore(if (n.endsWith(".docx", true)) n else "$n.docx", dir) }
                 }
                 when {
                     loading -> LoadingScreen()
@@ -158,6 +164,8 @@ class MainActivity : ComponentActivity() {
                         onOpenRecent = { openUri(Uri.parse(it.uri)) },
                         onRemoveRecent = { recents.remove(it.uri); recentList = recents.list() },
                         onProfile = { accountDialog = true },
+                        sharedDocs = sharedDocs.map { it.first.name to it.second },
+                        invitations = folderState.count { it.status == "invited" && !it.deleted },
                     )
                 }
             }
@@ -213,6 +221,7 @@ class MainActivity : ComponentActivity() {
             }
             if (i?.hasExtra("paste") == true) { current?.state?.paste(); return }
             if (i?.hasExtra("copy") == true) { current?.state?.copy(cut = i.getBooleanExtra("cut", false)); return }
+            if (i?.hasExtra("sync") == true) { syncNow(); return }
             i?.getStringExtra("cmdvalues")?.let { c -> current?.state?.logCommandValues(c); return }
             i?.getStringExtra("uno")?.let { cmd ->
                 current?.state?.uno(cmd, i.getStringExtra("unoargs").orEmpty())
@@ -250,7 +259,7 @@ class MainActivity : ComponentActivity() {
                 } else {
                     current?.let { closeDocument() }
                     // documents from Documents/MatNotes are the app's own: Save writes straight back to them
-                    saveUri = if (myDocs.any { it.uri == uri }) uri else null
+                    saveUri = if (allStored().any { it.uri == uri }) uri else null
                     current = OpenDoc(
                         doc, name,
                         DocumentViewState(doc, lifecycleScope, resources.displayMetrics.density).also { it.onSave = ::save; it.onTableOp = ::applyTableOp; it.onPasteImage = ::insertImage; it.appContext = applicationContext },
@@ -356,8 +365,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun saveToStore(fileName: String) {
-        val uri = DocStore.create(this, fileName, DOCX_MIME)
+    private fun saveToStore(fileName: String, dir: String = "") {
+        val uri = DocStore.create(this, fileName, DOCX_MIME, dir)
         if (uri == null) {
             createDoc.launch(fileName)
         } else {
@@ -366,7 +375,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun refreshStore() { myDocs = DocStore.list(this) }
+    private fun refreshStore() {
+        myDocs = DocStore.list(this)
+        sharedDocs = sync.folderList.value.filter { it.active && !it.personal }.map { f -> f to DocStore.listIn(this, f.localDir, com.matnotes.app.sync.SyncEngine.EXTENSIONS).orEmpty() }
+    }
+
+    private fun allStored() = myDocs + sharedDocs.flatMap { it.second }
 
     override fun onResume() {
         super.onResume()

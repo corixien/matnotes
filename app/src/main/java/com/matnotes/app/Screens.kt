@@ -76,8 +76,10 @@ fun HomeScreen(
     onOpenRecent: (RecentFile) -> Unit,
     onRemoveRecent: (RecentFile) -> Unit,
     onProfile: () -> Unit,
+    sharedDocs: List<Pair<String, List<StoredDoc>>> = emptyList(),
+    invitations: Int = 0,
 ) {
-    val storedUris = remember(myDocs) { myDocs.map { it.uri.toString() }.toSet() }
+    val storedUris = remember(myDocs, sharedDocs) { (myDocs + sharedDocs.flatMap { it.second }).map { it.uri.toString() }.toSet() }
     val others = recents.filter { it.uri !in storedUris }
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 20.dp)) {
         Row(Modifier.fillMaxWidth().padding(top = 20.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -88,7 +90,7 @@ fun HomeScreen(
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Bold,
             )
-            ProfileButton(onProfile)
+            ProfileButton(invitations > 0, onProfile)
         }
         Text(
             stringResource(R.string.tagline),
@@ -108,6 +110,10 @@ fun HomeScreen(
             if (myDocs.isNotEmpty()) {
                 item { SectionTitle(stringResource(R.string.my_documents)) }
                 items(myDocs, key = { "s" + it.uri }) { d -> DocRow(d.name, fmt.format(Date(d.modified)), { onOpenStored(d) }, null) }
+            }
+            sharedDocs.forEach { (folderName, docs) ->
+                item(key = "h$folderName") { SectionTitle(folderName) }
+                items(docs, key = { "f" + it.uri }) { d -> DocRow(d.name, fmt.format(Date(d.modified)), { onOpenStored(d) }, null) }
             }
             item { SectionTitle(stringResource(R.string.recent)) }
             if (others.isEmpty()) {
@@ -534,14 +540,23 @@ fun ShareDialog(onDismiss: () -> Unit, onShare: (format: String, email: Boolean)
 
 /** First save of a new document: choose the file name (stored in Documents/MatNotes). */
 @Composable
-fun NameDialog(initial: String, onDismiss: () -> Unit, onOk: (String) -> Unit) {
+fun NameDialog(initial: String, choices: List<Pair<String, String>>, onDismiss: () -> Unit, onOk: (name: String, dir: String) -> Unit) {
     var name by remember { mutableStateOf(initial) }
+    var dir by remember { mutableStateOf(choices.firstOrNull()?.second ?: "") }
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.save_document_title)) },
         text = {
             Column {
                 androidx.compose.material3.OutlinedTextField(name, { name = it }, singleLine = true, label = { Text(stringResource(R.string.file_name)) })
+                if (choices.size > 1) {
+                    Text(stringResource(R.string.share_in_folder), Modifier.padding(top = 12.dp), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        choices.forEach { (label, d) ->
+                            androidx.compose.material3.FilterChip(selected = dir == d, onClick = { dir = d }, label = { Text(label) })
+                        }
+                    }
+                }
                 Text(
                     stringResource(R.string.saved_in_folder),
                     Modifier.padding(top = 8.dp),
@@ -550,7 +565,7 @@ fun NameDialog(initial: String, onDismiss: () -> Unit, onOk: (String) -> Unit) {
                 )
             }
         },
-        confirmButton = { TextButton({ onDismiss(); onOk(name.trim().ifEmpty { initial }) }) { Text(stringResource(R.string.save)) } },
+        confirmButton = { TextButton({ onDismiss(); onOk(name.trim().ifEmpty { initial }, dir) }) { Text(stringResource(R.string.save)) } },
         dismissButton = { TextButton(onDismiss) { Text(stringResource(R.string.cancel)) } },
     )
 }

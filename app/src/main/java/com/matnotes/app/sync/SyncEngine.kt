@@ -38,6 +38,9 @@ class SyncEngine(private val context: Context) {
     private val keys = HashMap<String, ByteArray>()
     private val _status = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
     val status: StateFlow<SyncStatus> get() = _status
+    private val _folders = MutableStateFlow(db.folders())
+    /** All folders known from the last feed (personal, shared, pending invitations). */
+    val folderList: StateFlow<List<FolderRow>> get() = _folders
 
     companion object {
         const val MAX_FILE = 25 * 1024 * 1024
@@ -45,12 +48,13 @@ class SyncEngine(private val context: Context) {
         private const val UNKNOWN = -1L
     }
 
-    fun folders(): List<FolderRow> = db.folders()
+    private fun publishFolders() { _folders.value = db.folders() }
 
     /** Forgets everything local about the account (keys, cursor, links). Files stay on the phone. */
     fun reset() {
         keys.clear()
         db.clear()
+        publishFolders()
         _status.value = SyncStatus.Idle
     }
 
@@ -108,6 +112,7 @@ class SyncEngine(private val context: Context) {
         applyFolders(feed.getJSONArray("folders"))
         applyDocs(feed.getJSONArray("docs"))
         db.setMeta("cursor", feed.getString("cursor"))
+        publishFolders()
     }
 
     private fun applyFolders(arr: JSONArray) {
@@ -320,5 +325,50 @@ class SyncEngine(private val context: Context) {
     private fun safeName(name: String?): String {
         val n = (name ?: "document.docx").replace(Regex("[\\\\/:*?\"<>|\\u0000-\\u001f]"), "_").trim().ifEmpty { "document.docx" }
         return if (n.substringAfterLast('.', "").lowercase() in EXTENSIONS) n else "$n.docx"
+    }
+
+    // ---- sharing ----
+
+    class UserInfo(val id: String, val name: String, val publicKey: ByteArray) {
+        /** Code both people can compare to be sure the key belongs to the right person. */
+        val fingerprint: String get() = Crypto.fingerprint(publicKey)
+    }
+
+    /** Finds an account by e-mail (throws ApiException "not_found" when there is none). */
+    suspend fun lookupUser(email: String): UserInfo {
+        val j = Account.call("GET", "/users/lookup?email=" + java.net.URLEncoder.encode(email.trim(), "UTF-8"))
+        return UserInfo(j.getString("id"), j.getString("name"), Crypto.unb64(j.getString("publicKey")))
+    }
+
+    suspend fun createSharedFolder(name: String): String = lock.withLock {
+        val pub = Account.publicKey ?: throw IllegalStateException("not signed in")
+        val id = UUID.randomUUID().toString()
+        val key = Vault.newFolderKey()
+        Account.call("POST", "/folders", JSONObject().put("id", id).put("encName", Vault.sealFolderName(key, id, name.trim())).put("wrappedKey", Vault.wrapFolderKey(pub, key)))
+        pullFeed()
+        id
+    }
+
+    /** The folder key is wrapped with the invitee's public key right now, so they can join later without this phone being online. */
+    suspend fun invite(folderId: String, user: UserInfo) = lock.withLock {
+        val key = db.folder(folderId)?.let { folderKey(it) } ?: throw IllegalStateException(context.getString(R.string.sync_err_key))
+        Account.call("POST", "/folders/$folderId/members", JSONObject().put("userId", user.id).put("wrappedKey", Vault.wrapFolderKey(user.publicKey, key)))
+        pullFeed()
+    }
+
+    suspend fun answerInvite(folderId: String, accept: Boolean) = lock.withLock {
+        Account.call("POST", "/folders/$folderId/" + if (accept) "accept" else "decline")
+        pullFeed()
+    }
+
+    /** Owner removes a member / cancels an invitation, or a member leaves (userId = own id). */
+    suspend fun removeMember(folderId: String, userId: String) = lock.withLock {
+        Account.call("DELETE", "/folders/$folderId/members/$userId")
+        pullFeed()
+    }
+
+    suspend fun deleteFolder(folderId: String) = lock.withLock {
+        Account.call("DELETE", "/folders/$folderId")
+        pullFeed()
     }
 }

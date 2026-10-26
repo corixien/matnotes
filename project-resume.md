@@ -2,7 +2,7 @@
 
 > Instruction for Claude: read this whole file first, then every file under "Must read". Do not change anything before you understand the project. Keep this file current (see "Maintenance rules"). Answer the owner in German, short and technical.
 
-Last updated: 2026-10-19
+Last updated: 2026-10-26
 
 ## 1. What this project is
 MatNotes: Android app (phone + tablet, arm64 only) to open, edit and export `.docx` with a Word-like mobile UI. Priority 1: layout fidelity. Engine: LibreOfficeKit (prebuilt libs from the official TDF LibreOffice APK). Local only, no accounts, DE/EN. Repo `corixien/matnotes` (public), push straight to `main`, never PRs. Stage: working app on the owner's phone, feature work and polish. Package `com.matnotes.app`, Kotlin + Jetpack Compose.
@@ -51,6 +51,14 @@ Apply and verify the remaining border presets, tablet layout polish, comments, t
 - Not started: comments, table of contents.
 
 - 2026-10-20 (v0.2.1): cut/copy/paste use the phone clipboard (text + HTML out; picture, HTML, text in), Start-tab paste button works. Details in `AGENTS.md`.
+
+## 2026-10-26: cloud sync (in progress, not released)
+Built and pushed to `main`, not yet in a release: `server/` (accounts, folders, sharing, encrypted documents, change feed; 23 integration tests against local Postgres), `sync/` (crypto with JVM unit tests, account, sync engine, planner tests), profile button + account dialog, folders/sharing dialog, shared folders on the start screen, folder choice when saving a new document. Design and invariants: `AGENTS.md` "Cloud sync".
+**Open, in this order:**
+1. Device test (phone was not connected when this was written): `adb reverse tcp:3000 tcp:3000`, start the server locally (`server/README.md`), build with `-PsyncUrl=http://127.0.0.1:3000/api`; register, recovery key page, login, sync of a new doc, second install (release app and debug app are two "devices": different files), shared folder invite/accept, conflict copy, delete, password change, account deletion.
+2. Owner creates the Neon project and the Render service (`server/README.md` "Deploy"), sets `MATNOTES_SYNC_URL` as repository variable.
+3. Bump `versionCode`/`versionName`, tag, release (same keystore, `SIGNING.md`).
+Not built: PDF export into a folder (the engine syncs `.pdf` files, the app cannot create them in a folder yet), key rotation when a member is removed, restore of older versions (the server keeps 2), background sync with WorkManager (sync runs at sign-in, on resume, after a save and by button).
 
 ## Maintenance rules
 Update this file when structure, commands, invariants or state change. Bump "Last updated". Keep it short enough to read in one go.
