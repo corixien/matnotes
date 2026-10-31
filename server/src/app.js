@@ -1,11 +1,13 @@
 const express = require('express');
 const db = require('./db');
 const { errorHandler, AppError } = require('./errors');
+const { mountWeb } = require('./web');
 
 function createApp() {
     const app = express();
     app.set('trust proxy', 1); // Render terminates TLS in front of the service
     app.disable('x-powered-by');
+    mountWeb(app); // before the API-wide no-store header: static files set their own caching
     app.use((req, res, next) => { res.set({ 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); next(); });
 
     app.get('/api/health', async (req, res) => {

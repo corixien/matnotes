@@ -1,0 +1,10 @@
+{
+  "name": "MatNotes",
+  "short_name": "MatNotes",
+  "description": "Word documents in the browser, layout kept.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#141218",
+  "theme_color": "#2b579a",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

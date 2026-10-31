@@ -62,3 +62,10 @@ Not built: PDF export into a folder (the engine syncs `.pdf` files, the app cann
 
 ## Maintenance rules
 Update this file when structure, commands, invariants or state change. Bump "Last updated". Keep it short enough to read in one go.
+
+## 2026-10-31: web version (in progress, uncommitted, not deployed)
+Plan: `docs/web-plan.md`. Code: `web/` (Vite + TS, LibreOffice WASM via zetajs/ZetaOffice CDN, WebCrypto port of the sync). Server serves `web/dist` (`server/src/web.js`: COOP/COEP, CSP, compression).
+Done and tested: W1 engine/open/save, W2 home + ribbon + desktop/phone layout, W3 crypto (vectors both ways with Kotlin: `web/test-vectors`, `WebVectorsTest.kt`), W4/W5 account, sync, shared folders (vitest against a real server + Playwright `web/e2e/w*.mjs`, `npm run e2e`), table borders (docx patch) and looks (UNO), page setup.
+Also done: spell check (Hunspell WASM via hunspell-asm in a worker, language detection ported, panel; needs `node web/scripts/fetch-dictionaries.mjs`), phone selection toolbar, Ctrl+S, CSP + compression in `server/src/web.js`, PWA manifest, `render.yaml` builds the web app (a manually created Render service needs the same build command: `npm ci --omit=dev && cd ../web && npm ci && node scripts/fetch-dictionaries.mjs && npm run build`).
+Open: commit and push (nothing of the web work is committed), deploy and try on Render, real phone browser test (touch selection, keyboard), fonts Comic Neue/Anton are not in the engine, no service worker (engine ~50 MB is cached by the browser only), Android device test of the sync, release.
+Tips: kill leftovers with `pkill -f "[v]ite previe[w]"` before e2e (not needed with E2E_URL); local API server on :3000 needs podman container `matnotes-pg`; engine state updates (modified flag) arrive 1-2 s after typing, tests must wait for them.
