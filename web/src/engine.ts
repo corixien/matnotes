@@ -1,7 +1,9 @@
 // LibreOffice (WebAssembly, ZetaOffice) behind a small promise API. The engine draws into the page's #qtcanvas; the
 // UNO side runs in public/office_thread.js and talks to us over a message port.
 
-export const SOFFICE_URL: string = import.meta.env.VITE_SOFFICE_URL || 'https://cdn.zetaoffice.net/zetaoffice_latest/';
+declare const __ENGINE_BASE__: string; // set by vite.config.ts when scripts/fetch-engine.mjs has put a pinned engine copy next to the app
+/** Pinned, same-origin copy of the engine (long-lived cache, pre-compressed) when the build has one, else the ZetaOffice CDN. */
+export const SOFFICE_URL: string = import.meta.env.VITE_SOFFICE_URL || __ENGINE_BASE__ || 'https://cdn.zetaoffice.net/zetaoffice_latest/';
 
 type Port = { postMessage(m: unknown): void; onmessage: ((e: MessageEvent) => void) | null };
 type EmFS = { mkdir(p: string): void; writeFile(p: string, d: Uint8Array): void; readFile(p: string): Uint8Array; unlink(p: string): void };
@@ -139,6 +141,8 @@ export class Engine {
   async tableBorder(preset: string, line: LineSpec): Promise<boolean> { return (await this.call<{ ok: boolean }>({ cmd: 'tableBorder', preset, line })).ok; }
   async tableLook(look: LookSpec): Promise<boolean> { return (await this.call<{ ok: boolean }>({ cmd: 'tableLook', look })).ok; }
   async tableInfo(): Promise<Record<string, any> | null> { return (await this.call<{ info: Record<string, any> | null }>({ cmd: 'tableInfo' })).info; }
+  /** Zoom of the view in percent; `value` sets it (20..500), `fit` fits the page width. */
+  async zoom(opts: { value?: number; fit?: boolean } = {}): Promise<{ value: number; type: number }> { return this.call({ cmd: 'zoom', ...opts }); }
   async text(): Promise<string> { return (await this.call<{ text: string }>({ cmd: 'text' })).text; }
   async insertText(text: string): Promise<void> { await this.call({ cmd: 'insertText', text }); }
 

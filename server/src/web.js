@@ -2,6 +2,7 @@
 // (SharedArrayBuffer), hence the two isolation headers on every page; the engine files come from a CDN that sends CORP.
 const express = require('express');
 const compression = require('compression');
+const zlib = require('zlib');
 const fs = require('fs');
 const path = require('path');
 
@@ -34,6 +35,21 @@ function mountWeb(app) {
         if (req.path.startsWith('/api')) return next();
         isolate(res);
         next();
+    });
+    // The pinned engine (web/scripts/fetch-engine.mjs): files are stored as the CDN's own brotli payload, versioned by a hash in the
+    // path, so they can be cached for a year. Browsers take the .br bytes as they are; anything else gets them decoded.
+    const TYPES = { '.js': 'application/javascript', '.wasm': 'application/wasm' };
+    app.get(/^\/engine\/[\w-]+\/[\w.-]+$/, (req, res, next) => {
+        if (req.path.includes('..')) return next();
+        const br = path.join(DIST, req.path) + '.br';
+        if (!fs.existsSync(br)) return next();
+        res.set({
+            'Content-Type': TYPES[path.extname(req.path)] || 'application/octet-stream',
+            'Cache-Control': 'public, max-age=31536000, immutable',
+            Vary: 'Accept-Encoding',
+        });
+        const src = fs.createReadStream(br);
+        if (/\bbr\b/.test(req.get('Accept-Encoding') || '')) { res.set({ 'Content-Encoding': 'br', 'Content-Length': fs.statSync(br).size }); src.pipe(res); } else src.pipe(zlib.createBrotliDecompress()).pipe(res);
     });
     app.use(compression()); // text, wasm-free assets and the Hunspell dictionaries (about 3 MB each) shrink a lot
     app.use(express.static(DIST, {

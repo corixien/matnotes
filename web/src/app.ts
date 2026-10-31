@@ -5,6 +5,7 @@ import { Engine, type CommandState, type EngineFormat, type LineSpec, type LookS
 import { t } from './i18n';
 import { Ribbon, type Context, watchedCommands, allCommands } from './ribbon';
 import { Files, type FileInfo } from './store';
+import { ZoomControl } from './zoom';
 import { spellPanel } from './spell-panel';
 import { SpellClient } from './spell-client';
 import { MARK, patchDocx, edgesOfDocx, type TableOp, type Edge } from './tablepatch';
@@ -71,8 +72,10 @@ export class App {
   hooks: Hooks = {};
   /** Diagnostics for the e2e tests: edges of the first table in the exported docx. */
   async docTableEdges() { return edgesOfDocx(await this.engine!.save('docx')); }
+  private zoom!: ZoomControl;
   private spell = new SpellClient();
   private spelling = false;
+  private spellOnlineOff = false;
   private borderLine: LineSpec = { style: 'single', sz: 4, color: '000000' };
 
   constructor(root: HTMLElement) {
@@ -80,6 +83,8 @@ export class App {
     this.canvas = h('canvas#qtcanvas', { contenteditable: 'true', oncontextmenu: (e: Event) => e.preventDefault(), onkeydown: (e: Event) => e.preventDefault(), 'aria-label': 'Document' });
     this.canvas.addEventListener('wheel', (e) => e.preventDefault(), { passive: false });
     const stage = h('div.stage', null, this.canvas, this.floating);
+    this.zoom = new ZoomControl(stage, () => this.engine, () => !!this.doc);
+    stage.append(this.zoom.bar);
     this.editor.append(this.topbar, h('div.editor-body', null, stage), this.ribbonHost);
     root.append(this.editor, this.home);
     matchMedia('(max-width: 899px)').addEventListener('change', () => { this.buildRibbon(); this.renderTopbar(); });
@@ -100,6 +105,9 @@ export class App {
       this.engine = engine;
       engine.onState((id, s) => {
         this.states.set(id, s);
+        // LibreOffice's "check spelling while typing" has no dictionaries here (our own spell panel does the work) but costs ~40 % of the
+        // typing latency: switch it off once per document (it is a toggle that reports its state)
+        if (id === '.uno:SpellOnline' && s.value === true && this.doc && !this.spellOnlineOff) { this.spellOnlineOff = true; engine.dispatch('.uno:SpellOnline'); }
         if (id === '.uno:ModifiedStatus' && this.doc) { this.doc.modified = s.value === true; this.renderTopbar(); }
         this.ribbon?.refresh();
         this.updateContext();
@@ -226,6 +234,7 @@ export class App {
   private start(doc: Doc) {
     this.doc = doc;
     this.spelling = false;
+    this.spellOnlineOff = false;
     this.engineEditable = true;
     this.engine!.watch([...watchedCommands(), '.uno:ModifiedStatus']);
     history.pushState({ doc: true }, '');
@@ -233,7 +242,7 @@ export class App {
     this.home.classList.add('hidden');
     this.buildRibbon();
     this.renderTopbar();
-    setTimeout(() => { window.dispatchEvent(new Event('resize')); this.canvas.focus(); if (isPhone()) this.engine!.dispatch('.uno:ZoomPageWidth'); }, 100);
+    setTimeout(() => { window.dispatchEvent(new Event('resize')); this.canvas.focus(); if (isPhone()) void this.zoom.fit(); else void this.zoom.sync(); }, 100);
     this.setEditing(doc.editing, true);
   }
 
@@ -438,9 +447,9 @@ export class App {
       case 'header': e.dispatch('.uno:InsertPageHeader', [{ n: 'PageStyle', v: 'Default Page Style' }, { n: 'On', v: true }]); break;
       case 'footer': e.dispatch('.uno:InsertPageFooter', [{ n: 'PageStyle', v: 'Default Page Style' }, { n: 'On', v: true }]); break;
       case 'find': this.findDialog(); break;
-      case 'zoomin': e.dispatch('.uno:ZoomPlus'); break;
-      case 'zoomout': e.dispatch('.uno:ZoomMinus'); break;
-      case 'zoomfit': e.dispatch('.uno:ZoomPageWidth'); break;
+      case 'zoomin': this.zoom.step(1); break;
+      case 'zoomout': this.zoom.step(-1); break;
+      case 'zoomfit': void this.zoom.fit(); break;
       case 'spell': this.spelling = true; this.buildRibbon(); break;
       case 'wordcount': { const c = await e.counts(); toast(`${c.words} / ${c.chars}`); break; }
       case 'splitcols': e.dispatch('.uno:SplitCell', [{ n: 'Amount', v: 2 }, { n: 'HorizontalFlag', v: false }]); break;

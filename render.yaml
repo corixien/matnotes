@@ -6,7 +6,7 @@ services:
     plan: free
     rootDir: server
     # the web app (web/) is built here too and served by the same service from /
-    buildCommand: npm ci --omit=dev && cd ../web && npm ci && node scripts/fetch-dictionaries.mjs && npm run build
+    buildCommand: npm ci --omit=dev && cd ../web && npm ci && node scripts/fetch-dictionaries.mjs && node scripts/fetch-engine.mjs && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
     buildFilter:

@@ -140,7 +140,7 @@ const TABS: Tab[] = [
 
 /** Every UNO command the ribbon shows state for (the host registers listeners for these). */
 export function watchedCommands(): string[] {
-  const ids = new Set<string>(['.uno:Undo', '.uno:Redo', '.uno:Cut', '.uno:Copy', '.uno:Paste', '.uno:CharFontName', '.uno:FontHeight', '.uno:StyleApply', '.uno:DeleteTable', '.uno:SetAnchorToPage', '.uno:RotateLeft', '.uno:Delete', '.uno:EditDoc', '.uno:Zoom', '.uno:LanguageStatus']);
+  const ids = new Set<string>(['.uno:Undo', '.uno:Redo', '.uno:Cut', '.uno:Copy', '.uno:Paste', '.uno:CharFontName', '.uno:FontHeight', '.uno:StyleApply', '.uno:DeleteTable', '.uno:SetAnchorToPage', '.uno:RotateLeft', '.uno:Delete', '.uno:EditDoc', '.uno:Zoom', '.uno:LanguageStatus', '.uno:SpellOnline']);
   const walk = (it: Item) => { if (it.k === 'btn') { if (it.on) ids.add(it.on); if (it.cmd) ids.add(it.cmd); } else if (it.k === 'stack') it.rows.flat().forEach(walk); };
   TABS.forEach((tab) => tab.groups.forEach((g) => g.items.forEach(walk)));
   return [...ids];

@@ -27,6 +27,11 @@ function hideChrome() {
     if (el.getByName('Visible')) el.setPropertyValue('Visible', false);
   }
   config.commitChanges();
+  // rulers off for every new view (config, no toggle needed): horizontal, vertical, and the master switch
+  const layout = css.configuration.ReadWriteAccess.create(context, 'en-US');
+  const win = layout.getByHierarchicalName('/org.openoffice.Office.Writer/Layout/Window');
+  for (const k of ['ShowRulers', 'HorizontalRuler', 'VerticalRuler']) { try { win.setPropertyValue(k, false); } catch (e) { /* older build */ } }
+  layout.commitChanges();
 }
 
 function attach(model) {
@@ -37,11 +42,11 @@ function attach(model) {
   try { frame.LayoutManager.hideElement('private:resource/menubar/menubar'); } catch (e) { /* already hidden */ }
   try { frame.LayoutManager.hideElement('private:resource/statusbar/statusbar'); } catch (e) { /* already hidden */ }
   rewatch();
-  // sidebar and ruler are toggles that start visible; flip them once the view exists (too early is ignored)
+  // the sidebar is a toggle that starts visible; flip it once the view exists (too early is ignored)
   setTimeout(() => {
-    for (const cmd of ['.uno:Sidebar', '.uno:Ruler']) dispatch(cmd);
+    dispatch('.uno:Sidebar');
     post({ cmd: 'doc_ready' });
-  }, 1200);
+  }, 500);
 }
 
 function dispatch(uno, args) {
@@ -179,6 +184,15 @@ function tableInfo() {
   return { rows: table.getRows().getCount(), a1: cellInfo('A1'), a2: cellInfo('A2'), a3: cellInfo('A3') };
 }
 
+// Zoom through the view settings: ZoomType 3 = by value (percent), 1 = page width; both are UNO `short`s.
+function zoom(m) {
+  const vs = ctrl.getViewSettings();
+  const short = (v) => new zetajs.Any(zetajs.type.short, v);
+  if (m.fit) vs.setPropertyValue('ZoomType', short(1));
+  else if (m.value) { vs.setPropertyValue('ZoomType', short(3)); vs.setPropertyValue('ZoomValue', short(Math.max(20, Math.min(500, Math.round(m.value))))); }
+  return { value: Number(vs.getPropertyValue('ZoomValue')), type: Number(vs.getPropertyValue('ZoomType')) };
+}
+
 function open(path) {
   if (xModel) { try { xModel.close(true); } catch (e) { /* ignore */ } }
   attach(desktop.loadComponentFromURL('file://' + path, '_default', 0, []));
@@ -215,6 +229,7 @@ function onMessage(e) {
       case 'tableBorder': post({ cmd: 'done', id: m.id, ok: tableBorder(m.preset, m.line) }); break;
       case 'tableLook': post({ cmd: 'done', id: m.id, ok: tableLook(m.look) }); break;
       case 'tableInfo': post({ cmd: 'tableInfo', id: m.id, info: tableInfo() }); break;
+      case 'zoom': post({ cmd: 'zoom', id: m.id, ...zoom(m) }); break;
       case 'text': post({ cmd: 'text', id: m.id, text: xModel.getText().getString() }); break;
       case 'insertText': xModel.getText().getEnd().setString(m.text); post({ cmd: 'done', id: m.id }); break;
       default: post({ cmd: 'error', id: m.id, message: 'unknown command ' + m.cmd });
