@@ -346,4 +346,7 @@
     <string name="acc_delete_title">Delete account?</string>
     <string name="acc_delete_msg">Your account and your folders in the cloud are deleted for good, also for the people you share with. Documents on this phone stay. Enter your password to confirm.</string>
     <string name="acc_save">Save</string>
+    <string name="rename">Rename</string>
+    <string name="rename_exists">A document with this name already exists.</string>
+    <string name="rename_name">New name</string>
 </resources>

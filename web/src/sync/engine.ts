@@ -277,8 +277,12 @@ export class SyncEngine {
       file = fileKey(folder.localDir, name);
     } else {
       const [dir, name] = this.split(d.file);
-      await this.store.files.put(dir, name, remote.plain, this.now());
-      file = d.file;
+      // the cloud name wins: a document renamed on another device arrives under its new name
+      const wanted = d.name ? this.safeName(d.name) : name;
+      const target = wanted.toLowerCase() === name.toLowerCase() ? name : await this.store.files.freeName(dir, wanted);
+      await this.store.files.put(dir, target, remote.plain, this.now());
+      if (target !== name) await this.store.files.remove(dir, name);
+      file = fileKey(dir, target);
     }
     // size/modified are unknown after our own write: forces one hash check next cycle, which finds "unchanged"
     await this.store.docs.put({ ...d, file, baseVersion: remote.version, baseHash: hash, remoteVersion: remote.version, localSize: UNKNOWN, localModified: UNKNOWN });

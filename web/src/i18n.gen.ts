@@ -346,7 +346,10 @@ export const STRINGS: Record<'en' | 'de', Record<string, string>> = {
   "acc_delete_account": "Delete account",
   "acc_delete_title": "Delete account?",
   "acc_delete_msg": "Your account and your folders in the cloud are deleted for good, also for the people you share with. Documents on this phone stay. Enter your password to confirm.",
-  "acc_save": "Save"
+  "acc_save": "Save",
+  "rename": "Rename",
+  "rename_exists": "A document with this name already exists.",
+  "rename_name": "New name"
  },
  "de": {
   "app_name": "MatNotes",
@@ -694,6 +697,9 @@ export const STRINGS: Record<'en' | 'de', Record<string, string>> = {
   "acc_delete_account": "Konto löschen",
   "acc_delete_title": "Konto löschen?",
   "acc_delete_msg": "Dein Konto und deine Ordner in der Cloud werden endgültig gelöscht, auch für die Personen, mit denen du teilst. Dokumente auf diesem Handy bleiben. Gib zur Bestätigung dein Passwort ein.",
-  "acc_save": "Speichern"
+  "acc_save": "Speichern",
+  "rename": "Umbenennen",
+  "rename_exists": "Ein Dokument mit diesem Namen gibt es schon.",
+  "rename_name": "Neuer Name"
  }
 };

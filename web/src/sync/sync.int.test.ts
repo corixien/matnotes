@@ -2,6 +2,7 @@
 // Two "devices" = two isolated IndexedDB databases, each with its own Account and SyncEngine.
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'vitest';
+import { renameFile } from '../rename';
 import { Store } from '../store';
 import { Account } from './account';
 import { ApiException, SyncApi } from './api';
@@ -90,6 +91,24 @@ describe.skipIf(!base)('web sync against a real server', () => {
     // the copy was uploaded in the second pass and reaches device a
     await a.sync();
     expect(await text(a.store, '', copy!)).toBe('von B');
+  }, 120000);
+
+  it('a renamed document stays the same cloud document and arrives under its new name', async () => {
+    const a = new Device(), b = new Device();
+    const mail = email('ren');
+    await a.account.register('Ren', mail, 'pässwörd-12345');
+    await a.edit('', 'Alt.docx', 'inhalt');
+    await a.sync();
+    await b.account.login(mail, 'pässwörd-12345');
+    await b.sync();
+    expect(await text(b.store, '', 'Alt.docx')).toBe('inhalt');
+    expect(await renameFile(a.store, '', 'Alt.docx', 'Neu.docx')).toBe(true);
+    const r = await a.sync();
+    expect(r.errors).toEqual([]);
+    expect([r.uploaded, r.deleted]).toEqual([1, 0]); // a new version of the same document, not a delete + new upload
+    await b.sync();
+    expect((await b.store.files.inDir('')).map((f) => f.name)).toEqual(['Neu.docx']);
+    expect(await text(b.store, '', 'Neu.docx')).toBe('inhalt');
   }, 120000);
 
   it('an open document is not replaced', async () => {

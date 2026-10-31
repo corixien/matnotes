@@ -346,4 +346,7 @@
     <string name="acc_delete_title">Konto löschen?</string>
     <string name="acc_delete_msg">Dein Konto und deine Ordner in der Cloud werden endgültig gelöscht, auch für die Personen, mit denen du teilst. Dokumente auf diesem Handy bleiben. Gib zur Bestätigung dein Passwort ein.</string>
     <string name="acc_save">Speichern</string>
+    <string name="rename">Umbenennen</string>
+    <string name="rename_exists">Ein Dokument mit diesem Namen gibt es schon.</string>
+    <string name="rename_name">Neuer Name</string>
 </resources>

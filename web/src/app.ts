@@ -4,7 +4,8 @@ import { h, clear, add } from './dom';
 import { Engine, type CommandState, type EngineFormat, type LineSpec, type LookSpec } from './engine';
 import { t } from './i18n';
 import { Ribbon, type Context, watchedCommands, allCommands } from './ribbon';
-import { Files, type FileInfo } from './store';
+import { cleanName, renameFile } from './rename';
+import { Files, type FileInfo, store } from './store';
 import { ZoomControl } from './zoom';
 import { spellPanel } from './spell-panel';
 import { SpellClient } from './spell-client';
@@ -183,6 +184,7 @@ export class App {
     const list = h('div.menu');
     const close = popup(anchor, list);
     list.append(
+      h('button.menu-item', { type: 'button', onclick: () => { close(); void this.renameStored(f); } }, t('rename')),
       h('button.menu-item', { type: 'button', onclick: async () => { close(); const r = await Files.get(f.dir, f.name); if (r) this.download(f.name, r.bytes); } }, t('share_system') === 'share_system' ? 'Download' : 'Download'),
       h('button.menu-item.danger', { type: 'button', onclick: async () => { close(); if (await confirmDialog(t('delete'), f.name, t('delete'), true)) { await Files.remove(f.dir, f.name); this.hooks.onStored?.(); this.refreshHome(); } } }, t('delete')));
   }
@@ -319,7 +321,7 @@ export class App {
     add(this.topbar,
       btn('←', t('back'), () => void this.closeDoc(), '.back'),
       phone ? null : h('span.logo', null, 'MatNotes'),
-      h('span.doc-title', { title: d.name }, d.name, d.modified ? h('span.dirty', { title: t('unsaved_changes_short') }, ' ●') : null),
+      h('button.doc-title', { type: 'button', title: t('rename'), 'aria-label': t('rename') + ': ' + d.name, onclick: () => void this.renameOpen() }, d.name, d.modified ? h('span.dirty', { title: t('unsaved_changes_short') }, ' ●') : null),
       h('span.spacer'),
       d.editing
         ? btn('✓', t('done'), () => void this.setEditing(false), '.accent')
@@ -341,6 +343,37 @@ export class App {
     item(t('fmt_pdf'), () => void this.exportAs('pdf'));
     if (typeof navigator.share === 'function') item(t('share_system'), () => void this.shareFile());
     item(t('print'), () => void this.print());
+  }
+
+  // ------------------------------------------------------------------ rename
+
+  private async askName(current: string): Promise<string | null> {
+    const stemOf = current.replace(/\.[^.]+$/, '');
+    const input = await promptDialog(t('rename'), t('rename_name'), stemOf, t('rename'));
+    return input === null ? null : cleanName(input, current);
+  }
+
+  /** Rename from the home list (the file is not open). */
+  async renameStored(f: FileInfo) {
+    const name = await this.askName(f.name);
+    if (name === null || name === f.name) return;
+    if (!(await renameFile(store, f.dir, f.name, name))) { toast(t('rename_exists')); return; }
+    this.hooks.onStored?.();
+    await this.refreshHome();
+  }
+
+  /** Rename the open document: a stored file moves, a new or picked one just gets the name it will be saved under. */
+  async renameOpen() {
+    const d = this.doc;
+    if (!d) return;
+    const name = await this.askName(d.name);
+    if (name === null || name === d.name) return;
+    if (d.dir !== null) {
+      if (!(await renameFile(store, d.dir, d.name, name))) { toast(t('rename_exists')); return; }
+      this.hooks.onStored?.();
+    }
+    d.name = name;
+    this.renderTopbar();
   }
 
   // ------------------------------------------------------------------ files
